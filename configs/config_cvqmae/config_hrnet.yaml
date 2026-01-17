@@ -1,11 +1,13 @@
 train:
-  batch: 16
+  batch: 32 # valid 128
   lr: 1e-3
   device: 'cuda'
   total_epoch: 200
   workers: 8
   weight_decay: 0.05
   warmup_epoch: 20
+  # pretrained_path: checkpoint/VQMAE/mega_pretrained
+  pretrained_path: checkpoint/VQMAE/mega_pretrained
 
 
 vqvaemesh:
@@ -17,7 +19,7 @@ vqvaemesh:
   
 
 modelconv:
-  batch: 16
+  batch: 32
   connection_folder: body_models/ConnectionMatrices/
   initial_connection_fn: body_models/ConnectionMatrices/_pool0.npy
   connection_layer_lst: ["pool0", "pool1", "pool2","pool3", "pool4", "pool5", "pool6","unpool6", "unpool5","unpool4","unpool3","unpool2","unpool1", "unpool0"]
@@ -43,11 +45,15 @@ model:
 
 backbone:
   type: hrnet
+  # type: vit
+  # pretrained: body_models/vitpose_backbone.pth
   pretrained: body_models/pose_hrnet_w48.pth
 
   
 training_data:
-  file: 'configs/config_cvqmae/coco_train.txt'
+  # file: 'configs/config_cvqmae/coco_train.txt'
+  # file: 'configs/config_cvqmae/3dpw_train.txt'
+  file: 'configs/config_cvqmae/bedlam_train.txt'
   
 validation_data:
   file: 'configs/config_cvqmae/3dpw_validation.txt'

@@ -117,8 +117,9 @@ class CVQMAE_Train(Train):
             self.validation_loader = DataLoader(
                 validation_data,
                 batch_size=config_training["batch"],
-                shuffle=True,
+                shuffle=False,
                 pin_memory=True,
+                num_workers=config_training["workers"],
                 drop_last=True,
             )
 
@@ -214,7 +215,7 @@ class CVQMAE_Train(Train):
             cross_entropy = self.criterion(
                 predicted_indices.flatten(0, 1)[mask.flatten(0).to(torch.bool)],
                 indices.flatten(0)[mask.flatten(0).to(torch.bool)].to(torch.long),
-            )
+            ) # 交叉熵损失
             if not torch.isnan(cross_entropy):
                 self.train_cross.append(cross_entropy.item())
                 loss += cross_entropy
@@ -231,7 +232,7 @@ class CVQMAE_Train(Train):
             reproj_loss = 0
             if is_3dpw.any():
                 reproj_loss += reprojection_loss(
-                    data["j2d"][is_3dpw][:, :, :2],
+                    data["j2d"][is_3dpw][:, :, :2], # b, 24, 2
                     pred_mesh[is_3dpw],
                     pred_cam[is_3dpw],
                     self.joints_reg_smpl,
@@ -264,6 +265,32 @@ class CVQMAE_Train(Train):
             self.train_mpjpe.append(1000 * mpjpe_err.item())
             self.train_v2v.append(1000 * v2v_err.item())
 
+            # 每500次迭代绘制一次
+            if self.step_count % 500 == 0:
+                self.plot_meshes_(
+                    pred_mesh[:4],
+                    show=False,
+                    rot=True,
+                    save=f"{self.follow.path_samples_train}/step_{self.step_count}_reconstruction.png",
+                )
+                self.plot_meshes_(
+                    data["mesh"][:4],
+                    show=False,
+                    rot=True,
+                    save=f"{self.follow.path_samples_train}/step_{self.step_count}_real.png",
+                )
+
+                pred_v = pred_mesh.detach()
+                cam = pred_cam
+                raw_img = data["raw_img"].cpu().numpy().transpose(0, 2, 3, 1)
+                self.plot_reproj_(
+                    raw_img[:4],
+                    pred_v[:4],
+                    cam[:4],
+                    show=False,
+                    save=f"{self.follow.path_samples_train}/step_{self.step_count}_reprojection.png",
+                )
+
         self.plot_meshes_(
             pred_mesh[:4],
             show=False,
@@ -290,7 +317,8 @@ class CVQMAE_Train(Train):
         return losses
 
     def fit(self):
-        for e in range(self.config_training["total_epoch"]):
+        start_epoch = self.load_epoch if hasattr(self, 'load_epoch') else 0
+        for e in range(start_epoch, self.config_training["total_epoch"]):
             if self.multigpu_bool:
                 self.training_loader.sampler.set_epoch(e)
                 self.validation_loader.sampler.set_epoch(e)
@@ -580,21 +608,21 @@ class CVQMAE_Train(Train):
             for data in tqdm(iter(self.validation_loader)):
                 mesh = data["local_mesh"]
                 mesh = mesh.to(self.device)
-                indices = self.vqvae.get_codebook_indices(mesh)
-                img_features = data["img"].to(self.device)
+                indices = self.vqvae.get_codebook_indices(mesh) # [128, 54]
+                img_features = data["img"].to(self.device) # [128, 3, 224, 224]
                 limgname.extend(data["imgname"])
 
                 if self.vit_backbone:
                     predicted_indices, pred_rot, pred_cam, mask = self.model(
-                        indices, img_features[:, :, :, 32:-32], fixed_ratio=1
+                        indices, img_features[:, :, :, 32:-32], fixed_ratio=1 # 1表示全部被mask
                     )
                 else:
                     predicted_indices, pred_rot, pred_cam, mask = self.model(
                         indices, img_features, fixed_ratio=1
                     )
 
-                _, mesh_indices = torch.max(predicted_indices.data, -1)
-                mesh_indices = (
+                _, mesh_indices = torch.max(predicted_indices.data, -1) # 预测的是[128, 54, 512],每个对应概率? 但是好像是直接取最大值，取值是不确定的-28，16都有
+                mesh_indices = ( # [128, 54]
                     mesh_indices * mask + indices * (~mask.to(torch.bool))
                 ).type(torch.int64)
                 mesh_canonical = self.vqvae.decode(mesh_indices).cpu()
@@ -641,7 +669,7 @@ class CVQMAE_Train(Train):
                         rot=True,
                         save=f"{self.follow.path_samples}/{count}_reconstructed.png",
                     )
-
+            # MEGA-HRNet: V2V: 81.62244558603325, MPJPE: 68.46544816283112, PAMPJPE 44.14046473048009
             print(f"V2V: {mean(lv2v)}, MPJPE: {mean(lmpjpe)}, PAMPJPE {mean(lpampjpe)}")
 
             dict_results = {

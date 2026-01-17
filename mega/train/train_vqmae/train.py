@@ -148,11 +148,11 @@ class VQMAE_Train(Train):
             self.step_count += 1
             mesh = mesh.to(self.device)
             with torch.no_grad():
-                indices = self.vqvae.get_codebook_indices(
+                indices = self.vqvae.get_codebook_indices( # [16, 54] 每个索引值0-511
                     mesh.to(self.device),
                 )
-            predicted_indices, mask = self.model(indices)
-            loss = self.criterion(
+            predicted_indices, mask = self.model(indices) # [16, 54, 512] 和 [16, 54]
+            loss = self.criterion( # CrossEntropyLoss 交叉熵损失
                 predicted_indices.flatten(0, 1)[mask.flatten(0).to(torch.bool)],
                 indices.flatten(0)[mask.flatten(0).to(torch.bool)].to(torch.long),
             )

@@ -150,7 +150,7 @@ Once the model is pre-trained, you can generate random meshes with the same scri
 ### Training with images
 
 To train MEGA on images, use:
-    python traim_mega.py
+    python train_mega.py
 
 The default script will train the version of MEGA using HRNet. This can be modified, by changing the ```config_name``` L28 of the script.
 Configurations are available and can be modified in ```configs/config_cvqmae/```.

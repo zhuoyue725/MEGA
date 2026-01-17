@@ -89,12 +89,12 @@ def main(cfg: DictConfig):
                     predicted_indices, pred_rot, pred_cam, mask = mega(
                                 indices, img, fixed_ratio=1
                             )
-                    _, mesh_indices = torch.max(predicted_indices.data, -1)
+                    _, mesh_indices = torch.max(predicted_indices.data, -1) # 没有归一化
                     mesh_indices = (
                         mesh_indices * mask + indices * (~mask.to(torch.bool))
-                    ).type(torch.int64)
-                    mesh_canonical = mesh_vqvae.decode(mesh_indices)[:img.shape[0]].cpu()
-                    rotmat = rotation_6d_to_matrix(pred_rot)
+                    ).type(torch.int64) # [1, 54] 最匹配的索引
+                    mesh_canonical = mesh_vqvae.decode(mesh_indices)[:img.shape[0]].cpu() # [1, 6890, 3]
+                    rotmat = rotation_6d_to_matrix(pred_rot) #[1, 6] -> [1, 3, 3]
                     pred_mesh = (rotmat @ mesh_canonical.transpose(2, 1)).transpose(2, 1).squeeze(0).detach().cpu().numpy()
                     all_verts.append(pred_mesh)
 

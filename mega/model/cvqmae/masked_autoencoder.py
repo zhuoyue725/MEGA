@@ -117,8 +117,8 @@ class MAE_Encoder(torch.nn.Module):
             )
 
     def forward(self, patches, mask=None, fixed_ratio=None):
-        patches = rearrange(patches, "b t -> t b")
-        patches = self.proj(patches).reshape(self.seq_length, -1, self.emb_dim)
+        patches = rearrange(patches, "b t -> t b") # [1, 54] -> [54, 1]
+        patches = self.proj(patches).reshape(self.seq_length, -1, self.emb_dim) # [54, 1, 1024]
         if self.trainable_position:
             patches = patches + self.pos_embedding
         else:
@@ -128,18 +128,18 @@ class MAE_Encoder(torch.nn.Module):
                 patches, forward_indexes, backward_indexes = self.shuffle(patches)
             else:
                 patches, forward_indexes, backward_indexes = self.shuffle(
-                    patches, fixed_ratio=fixed_ratio
-                )
+                    patches, fixed_ratio=fixed_ratio # 打乱，并根据Mask Ratio进行掩码，1表示全部被mask，剔除后面的
+                ) # [54, 1, 1024] -> [0, 1, 1024]
         else:
             patches, forward_indexes, backward_indexes = self.shuffle_inference(
                 patches, masks=mask
             )
         patches = torch.cat(
             [self.cls_token.expand(-1, patches.shape[1], -1), patches], dim=0
-        )
-        patches = rearrange(patches, "t b c -> b t c")
-        features = self.layer_norm(self.transformer(patches))
-        features = rearrange(features, "b t c -> t b c")
+        ) # [1, 1, 1024]
+        patches = rearrange(patches, "t b c -> b t c") # [1, 1, 1024]
+        features = self.layer_norm(self.transformer(patches)) # [1, 1, 1024]
+        features = rearrange(features, "b t c -> t b c") # [1, 1, 1024]
         return features, backward_indexes
 
 
@@ -201,61 +201,61 @@ class MAE_Decoder(torch.nn.Module):
             trunc_normal_(self.pos_embedding, std=0.02)
 
     def forward(self, features, cond, backward_indexes, cond_dropout=False):
-        T = features.shape[0]
+        T = features.shape[0] # features: [1, 1, 1024] 1表示完全不可见（第一维度是cls_token）
         bs = features.shape[1]
-        backward_indexes = torch.cat(
+        backward_indexes = torch.cat( # [55, 1]
             [
                 torch.zeros(1, backward_indexes.shape[1]).to(backward_indexes),
                 backward_indexes + 1,
             ],
             dim=0,
         )
-        features = torch.cat(
+        features = torch.cat( # [55, 1, 1024]
             [
                 features,
-                self.mask_token.expand(
+                self.mask_token.expand( # 如果是推理，此处是全部被mask，问题是训练的时候这里应该也是全mask吧？有必要吗为什么不直接只用condition来解码
                     backward_indexes.shape[0] - features.shape[0], features.shape[1], -1
                 ),
             ],
             dim=0,
         )
-        features = take_indexes(features, backward_indexes)
+        features = take_indexes(features, backward_indexes) # [55, 1, 1024]
         if self.trainable_position:
             features = features + self.pos_embedding
         else:
             features = self.pos_embedding(features)
         features = rearrange(features, "t b c -> b t c")
 
-        cond_single = self.avg_pool(cond).view(bs, 1, -1)
-        cond = rearrange(cond, "b c w h -> (w h) b c")
-        cond_emb = self.cond_emb(cond)
-        cond_emb = self.pos_emb_cond(cond_emb)
-        cond_emb = rearrange(cond_emb, "t b c -> b t c")
+        cond_single = self.avg_pool(cond).view(bs, 1, -1) # [1, 720, 7, 7] -> [1, 1, 720]
+        cond = rearrange(cond, "b c w h -> (w h) b c") # [1, 720, 7, 7] -> [49, 1, 720]
+        cond_emb = self.cond_emb(cond) # [49, 1, 1024]
+        cond_emb = self.pos_emb_cond(cond_emb) # 加上位置编码 [49, 1, 1024]
+        cond_emb = rearrange(cond_emb, "t b c -> b t c") # [1, 49, 1024]
         if cond_dropout:
             mask_cond = torch.bernoulli(
                 torch.ones(bs, device=cond_emb.device) * self.cond_dropout
             ).view(bs, 1)
             cond_emb = cond_emb * (1.0 - mask_cond)
 
-        features = torch.cat([cond_emb, features], dim=1)
+        features = torch.cat([cond_emb, features], dim=1) # 拼接图像condition [1, 49, 1024] 和 token向量 [1, 55, 1024]
 
-        features = self.transformer(features)
-        features = rearrange(features, "b t c -> t b c")
-        pose_features = features[
+        features = self.transformer(features) # [1, 104, 1024] -> [1, 104, 1024] 这里为什么是104而不是54
+        features = rearrange(features, "b t c -> t b c") # [104, 1, 1024]
+        pose_features = features[ # 取后面的Pose特征 [54, 1, 1024]
             self.cond_length + 1 :
         ]  # remove image and global feature
 
-        rotcam_feature = self.rotcam_head(cond_single)
-        pred_rot = self.rot_predictor(rotcam_feature).view(-1, 6)
-        pred_cam = self.cam_predictor(rotcam_feature).view(-1, 3)
+        rotcam_feature = self.rotcam_head(cond_single) # [1, 1, 720] ->[1, 1, 1024]
+        pred_rot = self.rot_predictor(rotcam_feature).view(-1, 6) # [1, 6]
+        pred_cam = self.cam_predictor(rotcam_feature).view(-1, 3) # [1, 3]
 
         patches = pose_features
         mask = torch.zeros_like(patches)
-        mask[T:] = 1
-        mask = take_indexes(mask, backward_indexes[1:] - 1)
+        mask[T:] = 1 # 后面的不可见的设置为1
+        mask = take_indexes(mask, backward_indexes[1:] - 1) # Encoder中打乱了，这里还原到原本的位置
         mask = rearrange(mask, "t b c -> b t c")
         patches = rearrange(patches, "t b c -> b t c")
-        patches = self.head(patches)
+        patches = self.head(patches) # [1, 54, 1024] -> [1, 54, 512]
         return patches, pred_rot, pred_cam, mask[:, :, 0]
         # return patches, mask
 
@@ -314,14 +314,14 @@ class CVQMAE(torch.nn.Module):
         )
 
     def forward(self, img, cond, fixed_ratio=None, cond_dropout=False):
-        cond = self.backbone(cond)
+        cond = self.backbone(cond) # [1, 3, 224, 224] -> [1, 720, 7, 7]
         if fixed_ratio is None:
             features, backward_indexes = self.encoder(img)
-        else:
-            features, backward_indexes = self.encoder(img, fixed_ratio=fixed_ratio)
-        predicted_img, predicted_rot, predicted_cam, mask = self.decoder(
+        else: # 推理阶段，全0的img:[1, 54]被完全mask了，其实输入只有cls token
+            features, backward_indexes = self.encoder(img, fixed_ratio=fixed_ratio) # features: [1, 1, 1024] , [54, 1]和img是token: [54, 1]
+        predicted_img, predicted_rot, predicted_cam, mask = self.decoder( # 这个只有一层？
             features, cond, backward_indexes, cond_dropout=cond_dropout
-        )
+        )# [1, 54, 512] [1, 6] [1, 3] [1, 54]
         return predicted_img, predicted_rot.cpu(), predicted_cam.cpu(), mask
 
     def generate(

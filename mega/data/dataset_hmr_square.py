@@ -66,7 +66,7 @@ class DatasetHMRSquare(Dataset):
         elif "pose" in self.data:
             self.full_pose = self.data["pose"][sampled_indices]
         else:
-            root_orient = self.data["root_orient"][sampled_indices]
+            root_orient = self.data["root_orient"][sampled_indices] # root_orient 
             pose_body = self.data["pose_body"][sampled_indices]
             self.full_pose = np.concatenate([root_orient, pose_body], axis=-1)
 
@@ -129,7 +129,7 @@ class DatasetHMRSquare(Dataset):
 
         return flip, rot, sc
 
-    def rgb_processing(self, rgb_img, center, scale, rot, flip):
+    def rgb_processing(self, rgb_img, center, scale, rot, flip, img_path=None):
         if self.is_train:
             aug_comp = [
                 A.Downscale(0.5, 0.9, interpolation=0, p=0.1),
@@ -164,7 +164,7 @@ class DatasetHMRSquare(Dataset):
             )
             rgb_img = albumentation_aug(image=rgb_img)["image"]
 
-        rgb_img = crop(rgb_img, center, scale, [224, 224], rot=rot)
+        rgb_img = crop(rgb_img, center, scale, [224, 224], rot=rot, img_path=img_path) # (720, 1280, 3)
 
         if flip:
             rgb_img = flip_img(rgb_img)
@@ -211,6 +211,8 @@ class DatasetHMRSquare(Dataset):
             img_path = f"datasets/{self.dataset_file[:-4]}/{imgname}"
         else:
             img_path = imgname
+        if 'BEDLAM' in self.dataset_file[:-4]:
+            img_path = f"datasets/BEDLAM/train/{imgname}"
         img = cv2.imread(str(img_path))
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         if "closeup" in img_path:
@@ -223,7 +225,7 @@ class DatasetHMRSquare(Dataset):
             scale = 1 / self.scale[index]
 
         flip, rot, sc = self.augm_params()
-        img = self.rgb_processing(img, center, sc * scale, rot, flip)
+        img = self.rgb_processing(img, center, sc * scale, rot, flip, img_path=img_path)
 
         img = torch.from_numpy(img).float()
         resnet_img = self.normalize_resnet(img)

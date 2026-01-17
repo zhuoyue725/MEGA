@@ -4,7 +4,6 @@ from mega import (
     MixedDataset,
     set_seed,
     hrnet_w48,
-    # create_backbone, # 找不到
     vit,
 )
 import mesh_vq_vae
@@ -18,7 +17,6 @@ import argparse
 
 parser = argparse.ArgumentParser(description="Process some integers.")
 parser.add_argument("-p", "--path", type=str, help="Path to H5", default="datasets")
-parser.add_argument("-r", "--resume", type=str, help="Path to checkpoint to resume training", default=None)
 
 args = parser.parse_args()
 path = args.path
@@ -39,17 +37,11 @@ def main(cfg: DictConfig):
     ref_bm = np.load(ref_bm_path)
 
     """Data"""
-    training_data = MixedDataset(
-        cfg.training_data.file,
+    test_data = MixedDataset(
+        cfg.test_data.file,
         augment=False,
         flip=False,
         proportion=1,
-    )
-    validation_data = MixedDataset(
-        cfg.validation_data.file,
-        augment=False,
-        flip=False,
-        proportion=0.01,
     )
 
     """ Backbone """
@@ -67,7 +59,6 @@ def main(cfg: DictConfig):
         )
     else:
         backbone = vit()
-        # backbone = create_backbone(cfg)
         backbone.load_state_dict(
             torch.load(cfg.backbone.pretrained, map_location="cpu")["state_dict"]
         )
@@ -75,7 +66,7 @@ def main(cfg: DictConfig):
     """ ConvMesh VQVAE model """
     convmesh_model = mesh_vq_vae.FullyConvAE(cfg.modelconv, test_mode=True)
     mesh_vqvae = mesh_vq_vae.MeshVQVAE(convmesh_model, **cfg.vqvaemesh)
-    mesh_vqvae.load(path_model="checkpoint/MESH_VQVAE/mesh_vqvae_54") # 这个是将mesh离散化的VQ-VAE，mesh->token->mesh
+    mesh_vqvae.load(path_model="checkpoint/MESH_VQVAE/mesh_vqvae_54")
     convmesh_model.init_test_mode()
     pytorch_total_params = sum(
         p.numel() for p in mesh_vqvae.parameters() if p.requires_grad
@@ -90,37 +81,29 @@ def main(cfg: DictConfig):
     pytorch_total_params = sum(
         p.numel() for p in mesh_regressor.parameters() if p.requires_grad
     )
-    # Load the VQMAE pretrained on motion capture data 是预训练好的从随机掩码中预测token，但是无条件生成
-    # mesh_regressor.load("checkpoint/VQMAE/mega_pretrained")
-    mesh_regressor.load(cfg.train.pretrained_path)
+    # Load the VQMAE pretrained on motion capture data
+    mesh_regressor.load("checkpoint/CVQMAE/mega_hrnet")
     print(f"Regressor: {pytorch_total_params}")
 
     """Joint regressor"""
-    J_regressor = torch.from_numpy(np.load("body_models/J_regressor_h36m.npy")).float() # 17，6890
+    J_regressor = torch.from_numpy(np.load("body_models/J_regressor_h36m.npy")).float()
 
-    J_regressor_24 = torch.from_numpy(np.load("body_models/J_regressor_24.npy")).float() # 24, 6890
+    J_regressor_24 = torch.from_numpy(np.load("body_models/J_regressor_24.npy")).float()
 
     """ Training """
     pretrain_mesh_regressor = CVQMAE_Train(
         mesh_regressor,
         mesh_vqvae,
-        training_data,
-        validation_data,
+        test_data,
+        test_data,
         cfg.train,
         faces=torch.from_numpy(ref_bm["f"].astype(np.int32)),
         joints_regressor=J_regressor,
         joints_regressor_smpl=J_regressor_24,
     )
 
-    # 如果提供了检查点路径，则加载检查点继续训练
-    if args.resume is not None:
-        print(f"正在从检查点恢复训练: {args.resume}")
-        pretrain_mesh_regressor.load(path=args.resume, optimizer=True)
-        print(f"已加载检查点，将从第 {pretrain_mesh_regressor.load_epoch + 1} 个epoch继续训练")
-    else:
-        print("从头开始训练...")
-
-    pretrain_mesh_regressor.fit()
+    # pretrain_mesh_regressor.eval_deterministic()
+    pretrain_mesh_regressor.eval_stochastic(sample_size=25)
 
 
 if __name__ == "__main__":

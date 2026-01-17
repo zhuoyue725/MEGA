@@ -1,0 +1,62 @@
+{
+    // 使用 IntelliSense 了解相关属性。 
+    // 悬停以查看现有属性的描述。
+    // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        // screen -S rotate_bedlam
+        // screen -R rotate_bedlam
+        // 监控GPU利用率
+        // watch --color -n1 gpustat -cpu
+        {
+            "name": "Python 调试程序: Demo",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/demo.py",
+            "console": "integratedTerminal"
+        },
+        {
+            // pre-training on motion capture data
+            "name": "Python 调试程序: Self-supervised Pretrain Mega.py",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/pretrain_mega.py",
+            "console": "integratedTerminal"
+        },
+        {
+            // Training with images
+            "name": "Python 调试程序: Train MEGA on images",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/train_mega.py",
+            "args": [
+                "-r",
+                "checkpoint/CVQMAE/2026-1-16/12-47-3dpw/model_checkpoint"
+            ],
+            "console": "integratedTerminal"
+        },
+        {
+            // Deterministic testing
+            "name": "Python 调试程序: Test Mega Deterministic.py",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/test_mega.py",
+            "console": "integratedTerminal"
+        },
+        {
+            // Stochastic testing
+            "name": "Python 调试程序: Test Mega Stochastic.py",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/test_mega_sto.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Python 调试程序: 当前文件",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal"
+        }
+    ]
+}

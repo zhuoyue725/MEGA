@@ -76,7 +76,7 @@ def transform(pt, center, scale, res, invert=0, rot=0):
     return new_pt[:2].astype(int) + 1
 
 
-def crop(img, center, scale, res, rot=0):
+def crop(img, center, scale, res, rot=0, img_path=None):
     """Crop image according to the supplied bounding box."""
     # Upper left point
     ul = np.array(transform([1, 1], center, scale, res, invert=1)) - 1
@@ -98,6 +98,15 @@ def crop(img, center, scale, res, rot=0):
     # Range to sample from original image
     old_x = max(0, ul[0]), min(len(img[0]), br[0])
     old_y = max(0, ul[1]), min(len(img), br[1])
+
+    # 添加边界检查：确保切片区域有效
+    if old_y[0] >= old_y[1] or old_x[0] >= old_x[1]:
+        # 如果裁剪区域无效，返回一个黑色图像
+        path_info = f", img_path= {img_path}" if img_path is not None else ""
+        print(f"Warning: Invalid crop region. center={center}, scale={scale}, "
+              f"ul={ul}, br={br}, old_y={old_y}, old_x={old_x}, img_shape={img.shape}{path_info}")
+        # 返回一个全零图像（黑色）
+        return np.zeros((res[0], res[1], img.shape[2]) if len(img.shape) > 2 else (res[0], res[1]), dtype=img.dtype)
 
     new_img[new_y[0] : new_y[1], new_x[0] : new_x[1]] = img[
         old_y[0] : old_y[1], old_x[0] : old_x[1]

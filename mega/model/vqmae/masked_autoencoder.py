@@ -1,5 +1,5 @@
 """A large portion of this code is adapted from https://github.com/samsad35/VQ-MAE-S-code"""
-
+# VQ-VAE，无条件生成
 import torch
 import numpy as np
 import math
@@ -124,7 +124,7 @@ class MAE_Encoder(torch.nn.Module):
             patches = self.pos_embedding(patches)
         if mask is None:
             if fixed_ratio is None:
-                patches, forward_indexes, backward_indexes = self.shuffle(patches)
+                patches, forward_indexes, backward_indexes = self.shuffle(patches) # 随机mask一部分，只取前面的一部分
             else:
                 patches, forward_indexes, backward_indexes = self.shuffle(
                     patches, fixed_ratio=fixed_ratio
@@ -133,11 +133,11 @@ class MAE_Encoder(torch.nn.Module):
             patches, forward_indexes, backward_indexes = self.shuffle_inference(
                 patches, masks=mask
             )
-        patches = torch.cat(
-            [self.cls_token.expand(-1, patches.shape[1], -1), patches], dim=0
+        patches = torch.cat( # [19, 16, 1024] -> [20, 16, 1024]
+            [self.cls_token.expand(-1, patches.shape[1], -1), patches], dim=0 # 前面加上了cls_token是可学习的？额外加入的、不对应任何原始数据的“空白”向量，会不断吸取序列中所有可见 Token 的信息，成为了整张图片（或整个可见序列）的全局摘要
         )
-        patches = rearrange(patches, "t b c -> b t c")
-        features = self.layer_norm(self.transformer(patches))
+        patches = rearrange(patches, "t b c -> b t c") # [16, 20, 1024]
+        features = self.layer_norm(self.transformer(patches)) # [16, 20, 1024] 此处为什么要Transformer，Encoder只需要mask一部分token就行了？每个可见Token融合了其他可见Token的信息
         features = rearrange(features, "b t c -> t b c")
         return features, backward_indexes
 
@@ -181,7 +181,7 @@ class MAE_Decoder(torch.nn.Module):
         if self.trainable_position:
             trunc_normal_(self.pos_embedding, std=0.02)
 
-    def forward(self, features, backward_indexes):
+    def forward(self, features, backward_indexes): # features: [1, 54, 1280] backward_indexes: [55, 16]
         T = features.shape[0]
         backward_indexes = torch.cat(
             [
@@ -190,28 +190,28 @@ class MAE_Decoder(torch.nn.Module):
             ],
             dim=0,
         )
-        features = torch.cat(
+        features = torch.cat( # 后面的不可见Token被设置为0，可见的在前，Mask在后
             [
                 features,
                 self.mask_token.expand(
-                    backward_indexes.shape[0] - features.shape[0], features.shape[1], -1
+                    backward_indexes.shape[0] - features.shape[0], features.shape[1], -1 # 这里的mask_token应该是可学习参数, 初始为全0，正态分布std=0.02，然后可学习，应该是很小的数，但不为0
                 ),
             ],
             dim=0,
         )
-        features = take_indexes(features, backward_indexes)
+        features = take_indexes(features, backward_indexes) # 把特征放回正确的位置，可见的token放到原先的位置中
         if self.trainable_position:
-            features = features + self.pos_embedding
+            features = features + self.pos_embedding # pos_embedding: [55, 1, 1024]
         else:
             features = self.pos_embedding(features)
         features = rearrange(features, "t b c -> b t c")
-        features = self.transformer(features)
+        features = self.transformer(features) # [16, 55, 1024]
         features = rearrange(features, "b t c -> t b c")
         features = features[1:]  # remove global feature
 
         patches = features
         mask = torch.zeros_like(patches)
-        mask[T:] = 1
+        mask[T:] = 1 # 54 - T是可见的
         mask = take_indexes(mask, backward_indexes[1:] - 1)
         mask = rearrange(mask, "t b c -> b t c")
         patches = rearrange(patches, "t b c -> b t c")
@@ -265,9 +265,9 @@ class VQMAE(torch.nn.Module):
             trainable_position=trainable_position,
         )
 
-    def forward(self, img, fixed_ratio=None):
+    def forward(self, img, fixed_ratio=None): # img: [16, 54]
         if fixed_ratio is None:
-            features, backward_indexes = self.encoder(img)
+            features, backward_indexes = self.encoder(img) # [8, 16, 1024]， [54, 16]
         else:
             features, backward_indexes = self.encoder(img, fixed_ratio=fixed_ratio)
         predicted_img, mask = self.decoder(features, backward_indexes)
