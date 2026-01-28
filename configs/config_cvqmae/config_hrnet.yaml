@@ -47,7 +47,8 @@ backbone:
 
   
 training_data:
-  file: 'configs/config_cvqmae/coco_train.txt'
+  # file: 'configs/config_cvqmae/coco_train.txt'
+  file: 'configs/config_cvqmae/3dpw_train.txt'
   
 validation_data:
   file: 'configs/config_cvqmae/3dpw_validation.txt'

@@ -205,7 +205,8 @@ class MAE_Decoder(torch.nn.Module):
         else:
             features = self.pos_embedding(features)
         features = rearrange(features, "t b c -> b t c")
-        features = self.transformer(features)
+         # 这里没有features = torch.cat([cond_emb, features], dim=1)
+        features = self.transformer(features) # [16, 55, 1024]
         features = rearrange(features, "b t c -> t b c")
         features = features[1:]  # remove global feature
 

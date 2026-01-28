@@ -4,7 +4,7 @@ from mega import (
     MixedDataset,
     set_seed,
     hrnet_w48,
-    create_backbone,
+    # create_backbone,
 )
 import mesh_vq_vae
 import hydra
@@ -88,7 +88,7 @@ def main(cfg: DictConfig):
         p.numel() for p in mesh_regressor.parameters() if p.requires_grad
     )
     # Load the VQMAE pretrained on motion capture data
-    mesh_regressor.load("checkpoint/VQMAE/mega_pretrained")
+    mesh_regressor.load("checkpoint/CVQMAE/mega_hrnet") # checkpoint/VQMAE/mega_pretrained
     print(f"Regressor: {pytorch_total_params}")
 
     """Joint regressor"""

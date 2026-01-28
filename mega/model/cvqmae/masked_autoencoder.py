@@ -221,7 +221,7 @@ class MAE_Decoder(torch.nn.Module):
         )
         features = take_indexes(features, backward_indexes)
         if self.trainable_position:
-            features = features + self.pos_embedding
+            features = features + self.pos_embedding # [55, 1, 1024]
         else:
             features = self.pos_embedding(features)
         features = rearrange(features, "t b c -> b t c")
@@ -378,6 +378,7 @@ class CVQMAE(torch.nn.Module):
         return patches, predicted_rot, predicted_cam
 
     def load(self, path_model: str):
+        # 默认读取 checkpoint/VQMAE/mega_pretrained
         checkpoint = torch.load(path_model)
         state_dict = checkpoint["model"]
         # create new OrderedDict that does not contain `module.`
@@ -393,7 +394,7 @@ class CVQMAE(torch.nn.Module):
         # load params
         self.load_state_dict(new_state_dict, strict=False)
         loss = checkpoint["loss"]
-        print(f"\t [Model robustSMAE is loaded successfully with loss = {loss}]")
+        print(f"\t [Model {path_model} robustSMAE is loaded successfully with loss = {loss}]") # 11.468274822941533 vs 3.4400302241830265 (pretrained)
 
 
 if __name__ == "__main__":
