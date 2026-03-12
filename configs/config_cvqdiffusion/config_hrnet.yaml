@@ -1,0 +1,63 @@
+# ------------------------------------------------------------------ #
+#  CVQDiffusion 训练配置                                              #
+# ------------------------------------------------------------------ #
+
+train:
+  batch: 4
+  lr: 1e-4
+  device: 'cuda'
+  total_epoch: 200
+  workers: 0
+  weight_decay: 0.05
+  warmup_epoch: 20
+
+vqvaemesh:
+  num_embeddings: 512
+  embedding_dim: 9
+  commitment_cost: 0.25
+  decay: 0.99
+  num_quantizer: 1
+
+modelconv:
+  batch: 4
+  connection_folder: body_models/ConnectionMatrices/
+  initial_connection_fn: body_models/ConnectionMatrices/_pool0.npy
+  connection_layer_lst: ["pool0", "pool1", "pool2","pool3", "pool4", "pool5", "pool6","unpool6", "unpool5","unpool4","unpool3","unpool2","unpool1", "unpool0"]
+  channel_lst: [ 32, 32,  64, 64, 128, 128, 9, 128, 128,64, 64,32, 32,3]
+  weight_num_lst: [9,0, 9,0, 9,0, 9,9, 0,9,0,9,0,9]
+  residual_rate_lst: [0,1,  0,1,  0,1,  0,0,  1,0,  1,0,  1,0]
+
+# CVQDiffusion 模型超参
+model:
+  backbone_feat_dim: 720   # HRNet-W48 输出通道数
+  cond_emb_dim: 1024       # 条件向量投影维度
+  num_tok: 512             # content codebook 大小
+  seq_len: 54              # content 序列长度
+  n_emb: 512               # Transformer 隐层维度
+  cond_dim: 1024           # cross-attention 条件维度
+  cond_len: 49             # 条件序列长度（7×7）
+  n_head: 8
+  n_layer: 12
+  diff_step: 100
+  auxiliary_loss_weight: 5e-4
+  adaptive_auxiliary_loss: true
+  mask_weight: [1, 1]
+
+backbone:
+  type: hrnet
+  pretrained: body_models/pose_hrnet_w48.pth
+
+# npz 数据集路径
+training_data:
+  file: 'configs/config_cvqdiffusion/3dpw_train.txt'
+  
+validation_data:
+  file: 'configs/config_cvqdiffusion/3dpw_validation.txt'
+
+test_data:
+  file: 'configs/config_cvqdiffusion/3dpw_test.txt'
+
+# 可选：从已有 checkpoint 恢复训练
+resume:
+  path: ''       # 填写 checkpoint 路径则从此处恢复，留空则从头训练
+  optimizer: true
