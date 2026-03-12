@@ -189,11 +189,11 @@ class CVQMAE_Train(Train):
                 indices = self.vqvae.get_codebook_indices(
                     mesh.to(self.device),
                 )
-                img_features = data["img"].to(self.device)
+                img_features = data["img"].to(self.device) # [16, 3, 224, 224]
 
             if self.vit_backbone:
                 predicted_indices, pred_rot, pred_cam, mask = self.model(
-                    indices, img_features[:, :, :, 32:-32]
+                    indices, img_features[:, :, :, 32:-32] # [224, 160]
                 )
             else:
                 predicted_indices, pred_rot, pred_cam, mask = self.model(

@@ -239,6 +239,10 @@ class DatasetHMRSquare(Dataset):
 
         betas = self.betas[index][:10]
         gender = str(self.gender[index])
+        if gender == 'f':
+            gender = 'female'
+        elif gender == 'm':
+            gender = 'male'
         full_pose = self.full_pose[index][:66]
         pose = self.pose_processing(full_pose, rot, flip)
 
