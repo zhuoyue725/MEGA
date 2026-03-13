@@ -4,12 +4,12 @@
 
 train:
   batch: 4
-  lr: 1e-4
+  lr: 1e-3          # 提高基础学习率（实际 lr = 1e-3 * 4/256 ≈ 1.56e-5）
   device: 'cuda'
-  total_epoch: 200
+  total_epoch: 500  # 小数据集需要更多 epoch 过拟合
   workers: 0
-  weight_decay: 0.05
-  warmup_epoch: 20
+  weight_decay: 0.0  # 过拟合测试不需要正则化
+  warmup_epoch: 5    # 缩短 warmup，尽快到达峰值 lr
 
 vqvaemesh:
   num_embeddings: 512
@@ -37,8 +37,8 @@ model:
   cond_dim: 1024           # cross-attention 条件维度
   cond_len: 49             # 条件序列长度（7×7）
   n_head: 8
-  n_layer: 12
-  diff_step: 100
+  n_layer: 4               # 减少层数，便于小数据集过拟合
+  diff_step: 10            # 减少扩散步数，加快收敛
   auxiliary_loss_weight: 5e-4
   adaptive_auxiliary_loss: true
   mask_weight: [1, 1]
@@ -49,13 +49,13 @@ backbone:
 
 # npz 数据集路径
 training_data:
-  file: 'configs/config_cvqdiffusion/3dpw_train.txt'
+  file: 'configs/config_cvqdiffusion/3dpw_train_100.txt'
   
 validation_data:
-  file: 'configs/config_cvqdiffusion/3dpw_validation.txt'
+  file: 'configs/config_cvqdiffusion/3dpw_train_100.txt'
 
 test_data:
-  file: 'configs/config_cvqdiffusion/3dpw_test.txt'
+  file: 'configs/config_cvqdiffusion/3dpw_train_100.txt'
 
 # 可选：从已有 checkpoint 恢复训练
 resume:

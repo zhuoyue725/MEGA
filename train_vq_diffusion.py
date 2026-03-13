@@ -109,7 +109,7 @@ def main(cfg: DictConfig):
         cfg.validation_data.file,
         augment=False,
         flip=False,
-        proportion=0.01,
+        proportion=0.5,
     )
     print(f'Training   samples: {len(training_data)}')
     print(f'Validation samples: {len(validation_data)}')

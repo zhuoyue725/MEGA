@@ -120,15 +120,15 @@ class CVQDiffusion_Train(Train):
             batch_size=config_training['batch'],
             shuffle=False,
             num_workers=0,
-            drop_last=False,
+            drop_last=True,
         )
 
-        # ---- 优化器（与 CVQMAE_Train 保持一致）----
+        # ---- 优化器（小数据集过拟合：直接使用配置 lr，不做 batch 缩放）----
         self.optimizer = torch.optim.AdamW(
             self.model.parameters(),
-            lr=config_training['lr'] * config_training['batch'] / 256,
+            lr=config_training['lr'],
             betas=(0.9, 0.95),
-            weight_decay=config_training.get('weight_decay', 0.05),
+            weight_decay=config_training.get('weight_decay', 0.0),
         )
         total_epoch  = config_training['total_epoch']
         warmup_epoch = config_training.get('warmup_epoch', 20)
@@ -181,6 +181,8 @@ class CVQDiffusion_Train(Train):
             self.train_losses.append(loss.item())
             self.step_count += 1
 
+            # if self.step_count % 10 == 0:
+            #     break
             # ---- 每 50 步绘制一次重建网格（参照 CVQMAE_Train）----
             if self.step_count % 50 == 0 and self.f is not None:
                 with torch.no_grad():
@@ -191,6 +193,12 @@ class CVQDiffusion_Train(Train):
                     pred_tokens = sample_out['content_token']          # [B, 54]
                     pred_mesh   = self.vqvae.decode(pred_tokens).cpu() # [B, V, 3]
                     real_mesh   = data['mesh'][:4].cpu()
+                    real_mesh   = data['local_mesh'][:4].cpu()
+
+                    gt_tokens = self.vqvae.get_codebook_indices( # [B, 54]
+                        data['local_mesh'].to(self.device)
+                    )     
+                    gt_mesh   = self.vqvae.decode(gt_tokens).cpu() # [B, V, 3]
                 self.plot_meshes_(
                     pred_mesh,
                     show=False,
@@ -205,7 +213,35 @@ class CVQDiffusion_Train(Train):
                     save=f'{self.follow.path_samples_train}/'
                          f'epoch{epoch}_step{self.step_count}-real.png',
                 )
-
+                self.plot_meshes_(
+                    gt_mesh,
+                    show=False,
+                    rot=True,
+                    save=f'{self.follow.path_samples_train}/'
+                         f'epoch{epoch}_step{self.step_count}-gt_mesh.png',
+                )
+        with torch.no_grad():
+            # 用当前 img 采样生成 token，解码为网格
+            sample_out  = self.model.sample(
+                imgs[:4], filter_ratio=0.0, temperature=1.0
+            )
+            pred_tokens = sample_out['content_token']          # [B, 54]
+            pred_mesh   = self.vqvae.decode(pred_tokens).cpu() # [B, V, 3]
+            real_mesh   = data['local_mesh'][:4].cpu()
+        self.plot_meshes_(
+            pred_mesh,
+            show=False,
+            rot=True,
+            save=f'{self.follow.path_samples_train}/'
+                    f'epoch{epoch}_step{self.step_count}-reconstruction.png',
+        )
+        self.plot_meshes_(
+            real_mesh,
+            show=False,
+            rot=True,
+            save=f'{self.follow.path_samples_train}/'
+                    f'epoch{epoch}_step{self.step_count}-real.png',
+        )
         return losses
 
     # ---------------------------------------------------------------- #
@@ -217,13 +253,12 @@ class CVQDiffusion_Train(Train):
         with torch.no_grad():
             for data in tqdm(self.validation_loader, desc=f'Val   epoch {epoch}'):
                 imgs   = data['img'].to(self.device)
-                tokens = self.vqvae.get_codebook_indices(
+                tokens = self.vqvae.get_codebook_indices( # 这个返回的bs是mesh-vq-vae的
                     data['local_mesh'].to(self.device)
                 )
 
                 out  = self.model(tokens, imgs,
-                                  return_loss=True, return_logits=False,
-                                  is_train=False)
+                                  return_loss=True, return_logits=False)
                 loss = out['loss']
                 losses.append(loss.item())
                 self.val_losses.append(loss.item())

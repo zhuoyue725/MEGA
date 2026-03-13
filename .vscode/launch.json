@@ -4,6 +4,7 @@
     // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
+    
         
         // screen -S rotate_bedlam
         // screen -R train_BL
@@ -51,6 +52,18 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/train_mega.py",
+            "args": [
+                // "-r",
+                // "checkpoint/CVQMAE/2026-1-16/21-32-BL/model_checkpoint"
+            ],
+            "console": "integratedTerminal"
+        },
+        {
+            // Training with images
+            "name": "Python 调试程序: Train VQDiffusion on images",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/train_vq_diffusion.py",
             "args": [
                 // "-r",
                 // "checkpoint/CVQMAE/2026-1-16/21-32-BL/model_checkpoint"
