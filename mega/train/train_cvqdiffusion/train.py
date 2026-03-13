@@ -1,11 +1,10 @@
-"""
-CVQDiffusion 训练 + 过拟合验证脚本
+"""CVQDiffusion 训练 + 过拟合验证脚本
 
 用法（从项目根目录运行）：
     python mega/train/train_cvqdiffusion/train.py
 
 流程：
-  1. 读取 npz 数据集（图像路径 + token 索引）
+  1. 读取 MixedDataset 数据集（img + local_mesh）
   2. 加载 HRNet-W48 backbone
   3. 构建 CVQDiffusion 并训练
   4. 保存权重，再加载权重进行 eval 推理，验证可以过拟合
@@ -22,71 +21,27 @@ os.chdir(_root)
 import numpy as np
 import torch
 import torch.nn as nn
-import cv2
-from torch.utils.data import Dataset, DataLoader
-from torchvision.transforms import Normalize
+from torch.utils.data import DataLoader
 from omegaconf import OmegaConf
 from tqdm import tqdm
 
 from mega.model.backbone import hrnet_w48
 from mega.model.cvqdiffusion import CVQDiffusion
-from mega.utils.augmentations import crop
+from mega.data import MixedDataset
+import mesh_vq_vae
 
 # ------------------------------------------------------------------ #
 #  超参                                                               #
 # ------------------------------------------------------------------ #
-NPZ_PATH       = 'mega/train/train_cvqdiffusion/data/train_cvqdiffusion.npz'
 CKPT_DIR       = 'mega/train/train_cvqdiffusion/checkpoints'
 CKPT_PATH      = os.path.join(CKPT_DIR, 'cvqdiffusion_overfit.pth')
-CFG_PATH       = 'configs/config_cvqmae/config_hrnet.yaml'
+CFG_PATH       = 'configs/config_cvqdiffusion/config_hrnet.yaml'
 
 BATCH_SIZE     = 4
 NUM_EPOCHS     = 200       # 足够多的 epoch 以过拟合 100 个样本
 LR             = 1e-4
 DEVICE         = 'cuda' if torch.cuda.is_available() else 'cpu'
 LOG_INTERVAL   = 20        # 每隔多少 epoch 打印一次 loss
-
-
-# ------------------------------------------------------------------ #
-#  Dataset                                                            #
-# ------------------------------------------------------------------ #
-class CVQDiffusionDataset(Dataset):
-    """
-    读取 npz 文件中的图像路径和 token 索引。
-    图像处理方式与 DatasetHMRSquare 完全一致：
-      cv2.imread -> crop(img, center, scale, [224, 224]) -> normalize_resnet
-    center 取图像中心，scale = min(H, W) / 200。
-    """
-
-    def __init__(self, npz_path: str):
-        data = np.load(npz_path, allow_pickle=True)
-        self.img_paths = data['img_paths'].tolist()   # list of str
-        self.tokens    = data['tokens']               # [N, 54]  int32
-        # 与 DatasetHMRSquare 保持一致的归一化参数
-        self.normalize_resnet = Normalize(
-            mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-        )
-
-    def __len__(self):
-        return len(self.img_paths)
-
-    def __getitem__(self, idx):
-        img = cv2.imread(self.img_paths[idx])
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-        h, w = img.shape[:2]
-        # center 取图像中心，scale = min(H,W)/200（与 DatasetHMRSquare 的 scale 含义一致）
-        center = np.array([w / 2.0, h / 2.0], dtype=np.float32)
-        scale  = min(h, w) / 200.0
-
-        # 与 DatasetHMRSquare.rgb_processing 一致：crop 到 [224, 224]
-        img = crop(img, center, scale, [224, 224], rot=0)
-        img = np.transpose(img.astype('float32'), (2, 0, 1)) / 255.0  # [3, 224, 224]
-        img = torch.from_numpy(img).float()
-        img = self.normalize_resnet(img)                               # [3, 224, 224]
-
-        token = torch.from_numpy(self.tokens[idx].astype(np.int64))   # [54]
-        return img, token
 
 
 # ------------------------------------------------------------------ #
@@ -100,15 +55,34 @@ def main():
     model_cfg = cfg.model
     print('Config loaded.')
 
-    # ---- 数据集 ----
-    dataset    = CVQDiffusionDataset(NPZ_PATH)
-    dataloader = DataLoader(dataset, batch_size=BATCH_SIZE,
-                            shuffle=True, num_workers=0, drop_last=False)
-    print(f'Dataset size: {len(dataset)}')
+    # ---- 数据集（与 train_mega.py 一致） ----
+    training_data = MixedDataset(
+        cfg.training_data.file,
+        augment=False,
+        flip=False,
+        proportion=1,
+    )
+    dataloader = DataLoader(
+        training_data,
+        batch_size=BATCH_SIZE,
+        shuffle=True,
+        num_workers=0,
+        drop_last=True,
+    )
+    print(f'Dataset size: {len(training_data)}')
+
+    # ---- MeshVQVAE（用于动态获取 codebook indices） ----
+    convmesh_model = mesh_vq_vae.FullyConvAE(cfg.modelconv, test_mode=True)
+    vqvae = mesh_vq_vae.MeshVQVAE(convmesh_model, **cfg.vqvaemesh)
+    vqvae.load(path_model='checkpoint/MESH_VQVAE/mesh_vqvae_54')
+    convmesh_model.init_test_mode()
+    vqvae = vqvae.to(DEVICE)
+    vqvae.eval()
+    print('MeshVQVAE loaded.')
 
     # ---- Backbone ----
     backbone = hrnet_w48(
-        pretrained_ckpt_path=cfg.backbone.pretrained,  # body_models/pose_hrnet_w48.pth
+        pretrained_ckpt_path=cfg.backbone.pretrained,
         downsample=True,
         use_conv=True,
     ).to(DEVICE)
@@ -117,16 +91,16 @@ def main():
     # ---- 模型 ----
     model = CVQDiffusion(
         backbone=backbone,
-        backbone_feat_dim=model_cfg.cond_dim,    # 720
-        cond_emb_dim=1024,
-        num_tok=model_cfg.num_embeddings,        # 512
-        seq_len=model_cfg.seq_length,            # 54
-        n_emb=512,
-        cond_dim=1024,
-        cond_len=model_cfg.cond_length,          # 49
-        n_head=8,
-        n_layer=12,
-        diff_step=100,
+        backbone_feat_dim=model_cfg.backbone_feat_dim,
+        cond_emb_dim=model_cfg.cond_emb_dim,
+        num_tok=model_cfg.num_tok,
+        seq_len=model_cfg.seq_len,
+        n_emb=model_cfg.n_emb,
+        cond_dim=model_cfg.cond_dim,
+        cond_len=model_cfg.cond_len,
+        n_head=model_cfg.n_head,
+        n_layer=model_cfg.n_layer,
+        diff_step=model_cfg.diff_step,
     ).to(DEVICE)
 
     total_params = sum(p.numel() for p in model.parameters())
@@ -145,9 +119,13 @@ def main():
     # model.train()
     # for epoch in range(1, NUM_EPOCHS + 1):
     #     epoch_loss = 0.0
-    #     for imgs, tokens in dataloader:
-    #         imgs   = imgs.to(DEVICE)    # [B, 3, 224, 224]  (已裁剪)
-    #         tokens = tokens.to(DEVICE)  # [B, 54]
+    #     for data in dataloader:
+    #         # 与 train_class.py one_epoch 一致：从 local_mesh 动态获取 tokens
+    #         imgs = data['img'].to(DEVICE)          # [B, 3, 224, 224]
+    #         with torch.no_grad():
+    #             tokens = vqvae.get_codebook_indices(
+    #                 data['local_mesh'].to(DEVICE)
+    #             )                                  # [B, 54]
 
     #         optimizer.zero_grad()
     #         out  = model(tokens, imgs, return_loss=True, return_logits=False)
@@ -176,39 +154,45 @@ def main():
     print('\n--- Evaluation (overfit check) ---')
     model_eval = CVQDiffusion(
         backbone=backbone,
-        backbone_feat_dim=model_cfg.cond_dim,
-        cond_emb_dim=1024,
-        num_tok=model_cfg.num_embeddings,
-        seq_len=model_cfg.seq_length,
-        n_emb=512,
-        cond_dim=1024,
-        cond_len=model_cfg.cond_length,
-        n_head=8,
-        n_layer=12,
-        diff_step=100,
+        backbone_feat_dim=model_cfg.backbone_feat_dim,
+        cond_emb_dim=model_cfg.cond_emb_dim,
+        num_tok=model_cfg.num_tok,
+        seq_len=model_cfg.seq_len,
+        n_emb=model_cfg.n_emb,
+        cond_dim=model_cfg.cond_dim,
+        cond_len=model_cfg.cond_len,
+        n_head=model_cfg.n_head,
+        n_layer=model_cfg.n_layer,
+        diff_step=model_cfg.diff_step,
     ).to(DEVICE)
     model_eval.load(CKPT_PATH)
     model_eval.eval()
 
     # 逐批次计算 token 预测准确率
-    eval_loader = DataLoader(dataset, batch_size=BATCH_SIZE,
-                             shuffle=False, num_workers=0)
+    eval_loader = DataLoader(
+        training_data,
+        batch_size=BATCH_SIZE,
+        shuffle=False,
+        num_workers=0,
+        drop_last=True,
+    )
     total_correct = 0
     total_tokens  = 0
 
     with torch.no_grad():
-        for imgs, tokens in tqdm(eval_loader, desc='Eval'):
-            imgs   = imgs.to(DEVICE)
-            tokens = tokens.to(DEVICE)      # [B, 54]  ground-truth
+        for data in tqdm(eval_loader, desc='Eval'):
+            imgs = data['img'].to(DEVICE)
+            tokens = vqvae.get_codebook_indices(
+                data['local_mesh'].to(DEVICE)
+            )                                      # [B, 54]  ground-truth
 
             # sample: 从条件图像生成 token 序列
             sample_out = model_eval.sample(
                 imgs,
-                filter_ratio=0.0,    # filter_ratio=0 表示从头开始完整生成
+                filter_ratio=0.0,
                 temperature=1.0,
                 return_logits=False,
             )
-            # DiffusionTransformer.sample 返回 dict，content_token 在 'content_token' 键
             if isinstance(sample_out, dict):
                 pred_tokens = sample_out.get(
                     'content_token',

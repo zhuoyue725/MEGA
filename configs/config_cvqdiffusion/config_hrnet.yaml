@@ -4,7 +4,7 @@
 
 train:
   batch: 4
-  lr: 1e-3          # 提高基础学习率（实际 lr = 1e-3 * 4/256 ≈ 1.56e-5）
+  lr: 1e-4          # 提高基础学习率（实际 lr = 1e-3 * 4/256 ≈ 1.56e-5）
   device: 'cuda'
   total_epoch: 500  # 小数据集需要更多 epoch 过拟合
   workers: 0
@@ -49,15 +49,15 @@ backbone:
 
 # npz 数据集路径
 training_data:
-  file: 'configs/config_cvqdiffusion/3dpw_train_100.txt'
+  file: 'configs/config_cvqdiffusion/3dpw_train_10.txt'
   
 validation_data:
-  file: 'configs/config_cvqdiffusion/3dpw_train_100.txt'
+  file: 'configs/config_cvqdiffusion/3dpw_train_10.txt'
 
 test_data:
-  file: 'configs/config_cvqdiffusion/3dpw_train_100.txt'
+  file: 'configs/config_cvqdiffusion/3dpw_train_10.txt'
 
 # 可选：从已有 checkpoint 恢复训练
 resume:
-  path: ''       # 填写 checkpoint 路径则从此处恢复，留空则从头训练
+  path: 'checkpoint/CVQDIFFUSION/2026-03-13/10-48/model_checkpoint'       # 填写 checkpoint 路径则从此处恢复，留空则从头训练
   optimizer: true
