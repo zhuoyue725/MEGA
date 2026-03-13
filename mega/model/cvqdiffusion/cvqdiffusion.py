@@ -94,6 +94,16 @@ class CVQDiffusion(nn.Module):
         self.cond_emb     = nn.Linear(backbone_feat_dim, cond_emb_dim)
         self.pos_emb_cond = PositionalEncoding(d_model=cond_emb_dim, max_len=cond_len)
 
+        # ---- rotation regression head (mirrors MAE_Decoder) ----
+        self.avg_pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.rotcam_head = nn.Sequential(
+            nn.Linear(backbone_feat_dim, cond_emb_dim),
+            nn.Dropout(),
+            nn.Linear(cond_emb_dim, cond_emb_dim),
+            nn.Dropout(),
+        )
+        self.rot_predictor = nn.Linear(cond_emb_dim, 6)
+
         # ---- content embedding config (Sequence1DEmbedding) ----
         content_emb_cfg = {
             'target': 'image_synthesis.modeling.embeddings.sequence_1d_embedding.Sequence1DEmbedding',
@@ -166,15 +176,22 @@ class CVQDiffusion(nn.Module):
         img  : [B, 54]           – content token indices (long)
         cond : [B, 3, 224, 224]  – raw image
 
-        Returns dict with keys 'loss' (if return_loss) and 'logits' (if return_logits).
+        Returns dict with keys 'loss' (if return_loss), 'logits' (if return_logits),
+        and 'pred_rot' [B, 6] (6D rotation representation, always present).
         """
         # 1. backbone: [B, 3, 224, 224] -> [B, 720, 7, 7]
         cond_feat = self.backbone(cond)          # [B, 720, 7, 7]
 
-        # 2. condition embedding: [B, 720, 7, 7] -> [B, 49, 1024]
+        # 2. rotation regression from pooled backbone feature
+        #    avg_pool: [B, 720, 7, 7] -> [B, 720, 1, 1] -> [B, 1, 720]
+        cond_single = self.avg_pool(cond_feat).view(cond_feat.size(0), 1, -1)  # [B, 1, 720]
+        rotcam_feature = self.rotcam_head(cond_single)                         # [B, 1, cond_emb_dim]
+        pred_rot = self.rot_predictor(rotcam_feature).view(-1, 6)              # [B, 6]
+
+        # 3. condition embedding: [B, 720, 7, 7] -> [B, 49, 1024]
         cond_emb = self._encode_cond(cond_feat)  # [B, 49, 1024]
 
-        # 3. DiffusionTransformer forward
+        # 4. DiffusionTransformer forward
         out = self.diffusion(
             {
                 'content_token':          img,
@@ -184,6 +201,7 @@ class CVQDiffusion(nn.Module):
             return_logits=return_logits,
             is_train=is_train,
         )
+        out['pred_rot'] = pred_rot
         return out
 
     # ------------------------------------------------------------------ #
@@ -203,6 +221,12 @@ class CVQDiffusion(nn.Module):
         Returns sampled content tokens and optionally logits.
         """
         cond_feat = self.backbone(cond)          # [B, 720, 7, 7]
+
+        # rotation regression
+        cond_single = self.avg_pool(cond_feat).view(cond_feat.size(0), 1, -1)  # [B, 1, 720]
+        rotcam_feature = self.rotcam_head(cond_single)                         # [B, 1, cond_emb_dim]
+        pred_rot = self.rot_predictor(rotcam_feature).view(-1, 6)              # [B, 6]
+
         cond_emb  = self._encode_cond(cond_feat) # [B, 49, 1024]
 
         out = self.diffusion.sample(
@@ -214,6 +238,7 @@ class CVQDiffusion(nn.Module):
             temperature=temperature,
             return_logits=return_logits,
         )
+        out['pred_rot'] = pred_rot
         return out
 
     def load(self, path_model: str):

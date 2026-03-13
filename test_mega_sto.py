@@ -106,8 +106,8 @@ def main(cfg: DictConfig):
         joints_regressor_smpl=J_regressor_24,
     )
 
-    # pretrain_mesh_regressor.eval_deterministic()
-    pretrain_mesh_regressor.eval_stochastic(sample_size=1)
+    pretrain_mesh_regressor.eval_deterministic()
+    # pretrain_mesh_regressor.eval_stochastic(sample_size=1)
 
 
 if __name__ == "__main__":

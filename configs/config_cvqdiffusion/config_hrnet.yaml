@@ -19,7 +19,7 @@ vqvaemesh:
   num_quantizer: 1
 
 modelconv:
-  batch: 4
+  batch: 20
   connection_folder: body_models/ConnectionMatrices/
   initial_connection_fn: body_models/ConnectionMatrices/_pool0.npy
   connection_layer_lst: ["pool0", "pool1", "pool2","pool3", "pool4", "pool5", "pool6","unpool6", "unpool5","unpool4","unpool3","unpool2","unpool1", "unpool0"]
@@ -49,15 +49,15 @@ backbone:
 
 # npz 数据集路径
 training_data:
-  file: 'configs/config_cvqdiffusion/3dpw_train_10.txt'
+  file: 'configs/config_cvqdiffusion/3dpw_train_100.txt'
   
 validation_data:
-  file: 'configs/config_cvqdiffusion/3dpw_train_10.txt'
+  file: 'configs/config_cvqdiffusion/3dpw_train_100.txt'
 
 test_data:
-  file: 'configs/config_cvqdiffusion/3dpw_train_10.txt'
+  file: 'configs/config_cvqdiffusion/3dpw_train_100.txt'
 
 # 可选：从已有 checkpoint 恢复训练
 resume:
-  path: 'checkpoint/CVQDIFFUSION/2026-03-13/10-48/model_checkpoint'       # 填写 checkpoint 路径则从此处恢复，留空则从头训练
+  path: 'checkpoint/CVQDIFFUSION/2026-03-13/15-31/model_best_loss'       # 填写 checkpoint 路径则从此处恢复，留空则从头训练
   optimizer: true

@@ -150,8 +150,11 @@ def main(cfg: DictConfig):
     # ---------------------------------------------------------------- #
     #  确定性评估                                                       #
     # ---------------------------------------------------------------- #
-    trainer.eval_deterministic(visualize=True)
-
+    # trainer.eval_deterministic(visualize=True)
+    # V2V: 31.89  MPJPE: 28.88  PA-MPJPE: 19.38  (mm)
+    # sto:
+    # V2V: 21.20  MPJPE: 19.06  PA-MPJPE: 8.76  (mm)
+    trainer.eval_stochastic(sample_size=5, temperature=3.0, visualize=True, vis_idx=0)
 
 if __name__ == '__main__':
     main()
