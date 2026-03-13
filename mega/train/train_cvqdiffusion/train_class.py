@@ -18,6 +18,8 @@ import matplotlib.pyplot as plt
 from mega.base import Train
 from mega.model.cvqdiffusion import CVQDiffusion
 from mega.data import MixedDataset
+from mega.utils.eval import pa_mpjpe, mpjpe, v2v
+import pandas as pd
 
 
 # ------------------------------------------------------------------ #
@@ -96,6 +98,7 @@ class CVQDiffusion_Train(Train):
         validation_data: Dataset,
         config_training: dict = None,
         faces=None,              # 网格三角面，用于可视化
+        joints_regressor=None,   # 关节点回归矩阵，用于评估指标
     ):
         super().__init__()
 
@@ -106,6 +109,7 @@ class CVQDiffusion_Train(Train):
         self.vqvae = vqvae.to(self.device)
         self.vqvae.eval()  # vqvae 只做推理，不参与训练
         self.f = faces         # 网格三角面片，用于可视化
+        self.joints_reg = joints_regressor
 
         # ---- DataLoader ----
         self.training_loader = DataLoader(
@@ -292,6 +296,81 @@ class CVQDiffusion_Train(Train):
             self.follow.train_losses.append(avg_train)
             self.follow.val_losses.append(avg_val)
             self.follow.plot()
+
+    # ---------------------------------------------------------------- #
+    #  eval_deterministic                                               #
+    # ---------------------------------------------------------------- #
+    def eval_deterministic(self, visualize: bool = True):
+        """用 diffusion 采样（确定性 filter_ratio=0）评估验证集指标。
+
+        指标：PA-MPJPE、MPJPE、V2V（mm），结果保存为 results.csv。
+        可视化：GT 网格 + 重建网格（每个 batch 存一张对比图）。
+        """
+        self.model.eval()
+        with torch.no_grad():
+            lpampjpe = []
+            lmpjpe   = []
+            lv2v     = []
+            limgname = []
+            count    = 0
+
+            for data in tqdm(iter(self.validation_loader), desc='eval_deterministic'):
+                imgs = data['img'].to(self.device)           # [B, 3, 224, 224]
+                limgname.append(data['imgname'])
+
+                # 通过 diffusion 采样得到 content token
+                sample_out  = self.model.sample(
+                    imgs, filter_ratio=0.0, temperature=1.0
+                )
+                pred_tokens = sample_out['content_token']            # [B, 54]
+                pred_mesh   = self.vqvae.decode(pred_tokens).cpu()   # [B, V, 3]
+
+                gt_mesh = data['mesh']   # [B, V, 3]，世界坐标系真值
+
+                if self.joints_reg is not None:
+                    pa_mpjpe_err = pa_mpjpe(gt_mesh, pred_mesh, self.joints_reg)
+                    mpjpe_err    = mpjpe(gt_mesh, pred_mesh, self.joints_reg)
+                else:
+                    pa_mpjpe_err = torch.tensor(0.0)
+                    mpjpe_err    = torch.tensor(0.0)
+
+                v2v_err = v2v(gt_mesh, pred_mesh)
+
+                lpampjpe.append(1000 * pa_mpjpe_err.item())
+                lmpjpe.append(1000 * mpjpe_err.item())
+                lv2v.append(1000 * v2v_err.item())
+
+                if visualize:
+                    count += 1
+                    self.plot_meshes_(
+                        gt_mesh[:4],
+                        show=False,
+                        rot=True,
+                        save=f'{self.follow.path_samples}/{count}_gt.png',
+                    )
+                    self.plot_meshes_(
+                        pred_mesh[:4],
+                        show=False,
+                        rot=True,
+                        save=f'{self.follow.path_samples}/{count}_reconstructed.png',
+                    )
+
+            print(
+                f'V2V: {mean(lv2v):.2f}  '
+                f'MPJPE: {mean(lmpjpe):.2f}  '
+                f'PA-MPJPE: {mean(lpampjpe):.2f}  (mm)'
+            )
+
+            dict_results = {
+                'imgname':  limgname,
+                'pampjpe':  lpampjpe,
+                'mpjpe':    lmpjpe,
+                'v2v':      lv2v,
+            }
+            df = pd.DataFrame(dict_results)
+            df.to_csv(f'{self.follow.path}/results.csv', index=False)
+
+        return lv2v
 
     # ---------------------------------------------------------------- #
     #  load                                                             #
