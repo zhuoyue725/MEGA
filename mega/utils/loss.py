@@ -1,6 +1,9 @@
 import torch
 import torch.nn.functional as F
 from einops import rearrange
+import cv2
+import numpy as np
+import os
 
 H36M_TO_J17 = [6, 5, 4, 1, 2, 3, 16, 15, 14, 11, 12, 13, 8, 10, 0, 7, 9]
 
@@ -45,11 +48,18 @@ def orthographic_projection(X, camera):
     return X_2d
 
 
-def reprojection_loss(gt_2d, pred_v, pred_cam, joints_reg):
+def reprojection_loss(gt_2d, pred_v, pred_cam, joints_reg, visualize=False, vis_path=None, vis_counter=None):
     J_regressor_batch = joints_reg[None, :].expand(pred_v.shape[0], -1, -1).to(gt_2d)
     pred_3dkpt = torch.matmul(J_regressor_batch, pred_v)
     pred_2d = orthographic_projection(pred_3dkpt, pred_cam)
     l1_loss = torch.nn.L1Loss(reduction="mean")
+    
+    # 可视化
+    if visualize and vis_path is not None:
+        counter_str = f"_{vis_counter}" if vis_counter is not None else ""
+        save_path = os.path.join(vis_path, f"joints2d_gt_comparison{counter_str}.png")
+        # visualize_joints_2d(pred_2d, gt_2d, save_path)
+        visualize_gt_joints_2d(gt_2d, save_path)
     return l1_loss(pred_2d, gt_2d)
 
 
@@ -61,3 +71,183 @@ def reprojection_loss_conf(gt_2d, pred_v, pred_cam, joints_reg):
     l1_loss = torch.nn.L1Loss(reduction="none")
     loss = l1_loss(pred_2d, gt_2d[:, :, :2]).mean(dim=-1) * gt_2d[:, :, -1]
     return loss.mean()
+
+
+def visualize_gt_joints_2d(gt_2d, save_path, img_size=512):
+    """
+    只可视化真实的2D关节点
+    Args:
+        gt_2d: 真实的2D关节点 [B, N, 2] 或 [N, 2]，范围在 [-1, 1]
+        save_path: 保存路径
+        img_size: 图像大小
+    """
+    # 确保输出目录存在
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    
+    # 转换为numpy
+    if torch.is_tensor(gt_2d):
+        gt_2d = gt_2d.detach().cpu().numpy()
+    
+    # 如果是batch，只取第一个样本
+    if gt_2d.ndim == 3:
+        gt_2d = gt_2d[0]
+    
+    # print(gt_2d)
+    # 将坐标从 [-1, 1] 转换到图像坐标 [0, img_size]
+    gt_2d_img = (gt_2d + 1.0) * 0.5 * img_size
+    
+    # 创建白色背景图像
+    img = np.ones((img_size, img_size, 3), dtype=np.uint8) * 255
+    
+    # 获取关节点数量
+    num_joints = gt_2d.shape[0]
+    
+    # 定义关节连接关系 (SMPL 24关节点骨架)
+    if num_joints == 24:
+        # SMPL 24 joints skeleton
+        skeleton = [
+            [0, 1], [0, 2], [0, 3],  # 骨盆到腿
+            [1, 4], [2, 5], [3, 6],  # 大腿
+            [4, 7], [5, 8], [6, 9],  # 小腿和脊柱
+            [9, 12], [9, 13], [9, 14],  # 脊柱到肩膀和头
+            [12, 15], [13, 16], [14, 17],  # 肩膀到肘部
+            [15, 18], [16, 19], [17, 20],  # 肘部到手腕
+            [18, 21], [19, 22], [20, 23],  # 手腕到手
+        ]
+    elif num_joints == 17:
+        # Human3.6M 17 joints skeleton
+        skeleton = [
+            [0, 1], [1, 2], [2, 3],  # 右腿
+            [0, 4], [4, 5], [5, 6],  # 左腿
+            [0, 7], [7, 8], [8, 9], [9, 10],  # 脊柱到头部
+            [8, 11], [11, 12], [12, 13],  # 右臂
+            [8, 14], [14, 15], [15, 16],  # 左臂
+        ]
+    else:
+        # 如果关节数不匹配，只绘制点，不绘制骨架
+        skeleton = []
+    
+    # 绘制真实关节点的骨架 (蓝色)
+    for connection in skeleton:
+        if connection[0] < num_joints and connection[1] < num_joints:
+            pt1 = tuple(gt_2d_img[connection[0]].astype(int))
+            pt2 = tuple(gt_2d_img[connection[1]].astype(int))
+            cv2.line(img, pt1, pt2, (0, 0, 255), 3)
+    
+    # 绘制真实关节点 (蓝色圆圈)
+    for i, pt in enumerate(gt_2d_img):
+        pt = tuple(pt.astype(int))
+        cv2.circle(img, pt, 6, (0, 0, 255), -1)
+        cv2.circle(img, pt, 6, (0, 0, 0), 1)  # 黑色边框
+        cv2.putText(img, str(i), (pt[0] + 10, pt[1] + 10), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+    
+    # 添加标题和信息
+    cv2.putText(img, "Ground Truth Joints", (10, 30), 
+               cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2)
+    cv2.putText(img, f"Joints: {num_joints}", (10, 70), 
+               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
+    
+    # 保存图像
+    cv2.imwrite(save_path, img)
+    print(f"Saved GT joints visualization to {save_path} (joints={num_joints})")
+
+
+def visualize_joints_2d(pred_2d, gt_2d, save_path, img_size=512):
+    """
+    可视化预测的2D关节点和真实的2D关节点
+    Args:
+        pred_2d: 预测的2D关节点 [B, N, 2] 或 [N, 2]，范围在 [-1, 1]
+        gt_2d: 真实的2D关节点 [B, N, 2] 或 [N, 2]，范围在 [-1, 1]
+        save_path: 保存路径
+        img_size: 图像大小
+    """
+    # 确保输出目录存在
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    
+    # 转换为numpy
+    if torch.is_tensor(pred_2d):
+        pred_2d = pred_2d.detach().cpu().numpy()
+    if torch.is_tensor(gt_2d):
+        gt_2d = gt_2d.detach().cpu().numpy()
+    
+    # 如果是batch，只取第一个样本
+    if pred_2d.ndim == 3:
+        pred_2d = pred_2d[0]
+    if gt_2d.ndim == 3:
+        gt_2d = gt_2d[0]
+    
+    # 将坐标从 [-1, 1] 转换到图像坐标 [0, img_size]
+    pred_2d_img = (pred_2d + 1.0) * 0.5 * img_size
+    gt_2d_img = (gt_2d + 1.0) * 0.5 * img_size
+    
+    # 创建白色背景图像
+    img = np.ones((img_size, img_size, 3), dtype=np.uint8) * 255
+    
+    # 获取关节点数量
+    num_joints = pred_2d.shape[0]
+    
+    # 定义关节连接关系 (SMPL 24关节点骨架)
+    if num_joints == 24:
+        # SMPL 24 joints skeleton
+        skeleton = [
+            [0, 1], [0, 2], [0, 3],  # 骨盆到腿
+            [1, 4], [2, 5], [3, 6],  # 大腿
+            [4, 7], [5, 8], [6, 9],  # 小腿和脊柱
+            [9, 12], [9, 13], [9, 14],  # 脊柱到肩膀和头
+            [12, 15], [13, 16], [14, 17],  # 肩膀到肘部
+            [15, 18], [16, 19], [17, 20],  # 肘部到手腕
+            [18, 21], [19, 22], [20, 23],  # 手腕到手
+        ]
+    elif num_joints == 17:
+        # Human3.6M 17 joints skeleton
+        skeleton = [
+            [0, 1], [1, 2], [2, 3],  # 右腿
+            [0, 4], [4, 5], [5, 6],  # 左腿
+            [0, 7], [7, 8], [8, 9], [9, 10],  # 脊柱到头部
+            [8, 11], [11, 12], [12, 13],  # 右臂
+            [8, 14], [14, 15], [15, 16],  # 左臂
+        ]
+    else:
+        # 如果关节数不匹配，只绘制点，不绘制骨架
+        skeleton = []
+    
+    # 绘制真实关节点的骨架 (绿色)
+    for connection in skeleton:
+        if connection[0] < num_joints and connection[1] < num_joints:
+            pt1 = tuple(gt_2d_img[connection[0]].astype(int))
+            pt2 = tuple(gt_2d_img[connection[1]].astype(int))
+            cv2.line(img, pt1, pt2, (0, 255, 0), 2)
+    
+    # 绘制预测关节点的骨架 (红色)
+    for connection in skeleton:
+        if connection[0] < num_joints and connection[1] < num_joints:
+            pt1 = tuple(pred_2d_img[connection[0]].astype(int))
+            pt2 = tuple(pred_2d_img[connection[1]].astype(int))
+            cv2.line(img, pt1, pt2, (255, 0, 0), 2)
+    
+    # 绘制真实关节点 (绿色圆圈)
+    for i, pt in enumerate(gt_2d_img):
+        pt = tuple(pt.astype(int))
+        cv2.circle(img, pt, 5, (0, 255, 0), -1)
+        cv2.putText(img, str(i), (pt[0] + 8, pt[1] + 8), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 200, 0), 1)
+    
+    # 绘制预测关节点 (红色圆圈)
+    for i, pt in enumerate(pred_2d_img):
+        pt = tuple(pt.astype(int))
+        cv2.circle(img, pt, 5, (255, 0, 0), -1)
+        cv2.putText(img, str(i), (pt[0] - 15, pt[1] - 8), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.35, (200, 0, 0), 1)
+    
+    # 添加图例和信息
+    cv2.putText(img, "Green: GT", (10, 30), 
+               cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+    cv2.putText(img, "Red: Pred", (10, 60), 
+               cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
+    cv2.putText(img, f"Joints: {num_joints}", (10, 90), 
+               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1)
+    
+    # 保存图像
+    cv2.imwrite(save_path, img)
+    print(f"Saved joints visualization to {save_path} (joints={num_joints})")

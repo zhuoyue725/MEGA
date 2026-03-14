@@ -33,7 +33,7 @@ from mega.train.train_cvqdiffusion.train_class import CVQDiffusion_Train
 
 @hydra.main(
     config_path='configs/config_cvqdiffusion',
-    config_name='config_hrnet',
+    config_name='config_hrnet_large',
     version_base=None,
 )
 def main(cfg: DictConfig):
@@ -115,6 +115,12 @@ def main(cfg: DictConfig):
     print(f'Validation samples: {len(validation_data)}')
 
     # ---------------------------------------------------------------- #
+    #  Joint regressor（用于评估和重投影损失）                           #
+    # ---------------------------------------------------------------- #
+    J_regressor = torch.from_numpy(np.load('body_models/J_regressor_h36m.npy')).float()
+    J_regressor_24 = torch.from_numpy(np.load('body_models/J_regressor_24.npy')).float()
+
+    # ---------------------------------------------------------------- #
     #  Trainer                                                          #
     # ---------------------------------------------------------------- #
     trainer = CVQDiffusion_Train(
@@ -124,13 +130,18 @@ def main(cfg: DictConfig):
         validation_data=validation_data,
         config_training=OmegaConf.to_container(cfg.train, resolve=True),
         faces=faces,
+        joints_regressor=J_regressor,
+        joints_regressor_smpl=J_regressor_24,
     )
 
+    trainer.load_rotcam_weights('checkpoint/CVQMAE/rotcam_weights.pth')
     # ---- 可选：从 checkpoint 恢复 ----
     resume_path = cfg.get('resume', {}).get('path', '')
     if resume_path:
         load_optimizer = cfg.get('resume', {}).get('optimizer', True)
         trainer.load(path=resume_path, optimizer=load_optimizer)
+        # 加载相机和旋转网络参数
+        # trainer.load_rotcam_weights('checkpoint/CVQMAE/rotcam_weights.pth')
         print(f'Resumed from {resume_path}')
 
     # ---------------------------------------------------------------- #

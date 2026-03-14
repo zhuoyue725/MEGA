@@ -228,7 +228,7 @@ class DatasetHMRSquare(Dataset):
         img = torch.from_numpy(img).float()
         resnet_img = self.normalize_resnet(img)
 
-        j2d = self.j2d[index][:24]
+        j2d = self.j2d[index][:24].copy()  # 创建副本，避免修改原始数据
         if not is_3dpw:
             j2d = j2d[J24_TO_J17]
             j2d = self.j2d_processing(j2d, center, sc * scale, rot, flip)
