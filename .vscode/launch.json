@@ -81,7 +81,7 @@
             "program": "${workspaceFolder}/demo_vqdiffusion.py",
             "args": [
                 "--input_path", "demo_data/input/3dpw",
-                "--output_path", "demo_data/output_vqd/3dpw_overfit",
+                "--output_path", "demo_data/output_vqd/3dpw_overfit2",
                 "--checkpoint", "checkpoint/CVQDIFFUSION/2026-03-13/15-31/model_best_loss"
             ],
             "console": "integratedTerminal"

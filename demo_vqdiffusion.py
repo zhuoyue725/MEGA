@@ -167,15 +167,17 @@ def main():
                 vertices = pred_mesh[0].cpu().numpy()  # [V, 3]
 
                 # 命名与图像文件名相同，多人时加后缀
-                if len(dataloader) > 1:
-                    obj_name = f"{img_fn}_person{person_idx}.obj"
-                else:
-                    obj_name = f"{img_fn}.obj"
+                # if len(dataloader) > 1:
+                #     obj_name = f"{img_fn}_person{person_idx}.obj"
+                # else:
+                #     obj_name = f"{img_fn}.obj"
+                obj_name = f"{img_fn}.obj"
 
                 obj_path = os.path.abspath(os.path.join(output_path, obj_name))
                 mesh = trimesh.Trimesh(vertices, faces, process=False)
                 mesh.export(obj_path)
                 print(f"Saved: {obj_path}")
+                break
 
 
 if __name__ == "__main__":
