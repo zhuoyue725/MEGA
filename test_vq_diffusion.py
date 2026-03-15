@@ -158,8 +158,8 @@ def main(cfg: DictConfig):
     # V2V: 31.89  MPJPE: 28.88  PA-MPJPE: 19.38  (mm)
     # sto:
     # V2V: 21.20  MPJPE: 19.06  PA-MPJPE: 8.76  (mm)
-    # trainer.eval_stochastic(sample_size=sample_size, temperature=1.0, visualize=True, vis_idx=0) # 采样1.0，设置其他值结果不行
-    trainer.eval_stochastic_diffusion_step(diffusion_steps=[25, 50, 75, 100], temperature=1.0, vis_idx=1)
+    trainer.eval_stochastic(sample_size=sample_size, temperature=1.0, visualize=True, vis_idx=2) # 采样1.0，设置其他值结果不行
+    # trainer.eval_stochastic_diffusion_step(diffusion_steps=[25, 50, 75, 100], temperature=1.0, vis_idx=1)
 
 if __name__ == '__main__':
     main()

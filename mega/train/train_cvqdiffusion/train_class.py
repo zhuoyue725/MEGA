@@ -699,7 +699,7 @@ class CVQDiffusion_Train(Train):
                     idx = min(vis_idx, B - 1)
                     samples_for_idx = pred_mesh_all[:, idx]               # [S, V, 3]
 
-                    save_path = (f'{self.follow.path_samples_train}/'
+                    save_path = (f'{self.follow.path_samples}/'
                                  f'stoch_step{count}_idx{idx}_samples.png')
                     self.plot_meshes_(samples_for_idx, show=False, rot=True, save=save_path)
                     
@@ -711,7 +711,7 @@ class CVQDiffusion_Train(Train):
                     pred_v_idx = pred_mesh_all[:, idx]  # [S, V, 3]
                     pred_cam_idx = sample_out['pred_cam'].view(sample_size, B, -1)[:, idx]  # [S, 3]
                     
-                    reproj_save_path = (f'{self.follow.path_samples_train}/'
+                    reproj_save_path = (f'{self.follow.path_samples}/'
                                        f'stoch_step{count}_idx{idx}_reprojection.png')
                     self.plot_reproj_samples_(
                         raw_img_idx,
@@ -789,10 +789,6 @@ class CVQDiffusion_Train(Train):
                 imgs = data['img'].to(self.device)  # [B, 3, 224, 224]
                 B = imgs.size(0)
                 
-                # 检查 vis_idx 是否在当前 batch 中
-                if vis_idx >= B:
-                    continue
-                
                 # 获取要可视化的样本
                 img_vis = imgs[vis_idx:vis_idx+1]  # [1, 3, 224, 224]
                 
@@ -805,7 +801,7 @@ class CVQDiffusion_Train(Train):
                     save_steps=diffusion_steps,
                     output_dir=str(output_dir),
                     temperature=temperature,
-                    batch_idx=0,
+                    batch_idx=batch_idx,
                 )
                 
                 print(f'  Generated {len(results)} visualization files')
@@ -820,7 +816,6 @@ class CVQDiffusion_Train(Train):
                 count += 1
                 
                 # 只处理第一个包含 vis_idx 的 batch
-                break
             
             if count == 0:
                 print(f'Warning: vis_idx {vis_idx} not found in validation set')
@@ -1177,6 +1172,7 @@ class CVQDiffusion_Train(Train):
         output_dir=None,
         temperature=1.0,
         batch_idx=0,
+        vis_idx=0,
     ):
         """
         可视化扩散过程中指定步骤的 mesh_token 结果。
@@ -1235,6 +1231,7 @@ class CVQDiffusion_Train(Train):
                 mesh_step = self.vqvae.decode(tokens_step_clipped).cpu()
                 results[f'step_{step}'] = mesh_step
 
+            results[f'step_{self.model.diff_step}'] = final_mesh_canonical_v1
             # 获取旋转矩阵用于可视化
             pred_rot = sample_out.get('pred_rot', torch.zeros(final_tokens.shape[0], 6, device=device))
             pred_cam = sample_out.get('pred_cam', torch.zeros(final_tokens.shape[0], 3, device=device))
@@ -1250,32 +1247,31 @@ class CVQDiffusion_Train(Train):
             sorted_keys = sorted(results.keys(), key=lambda x: int(x.split('_')[1]) if x.startswith('step_') else float('inf'))
             for name in sorted_keys:
                 mesh_canonical = results[name]
-                print(name)
                 # 应用旋转
                 pred_mesh = (rotmat @ mesh_canonical.transpose(2, 1)).transpose(2, 1)
-                step_meshes.append(pred_mesh[batch_idx])
+                step_meshes.append(pred_mesh[vis_idx])
             
             # 获取原始图像
             raw_img = imgs.cpu().numpy().transpose(0, 2, 3, 1)
             # 将图像从 [-1, 1] 范围转换为 [0, 1] 范围
             raw_img = (raw_img + 1) / 2
             raw_img = np.clip(raw_img, 0, 1)
-            raw_img_batch = raw_img[batch_idx:batch_idx+1]
+            raw_img_batch = raw_img[vis_idx:vis_idx+1]
             
             # 为每个步骤单独保存 OBJ 文件
-            if self.f is not None:
-                import trimesh
-                for name, mesh_canonical in results.items():
-                    pred_mesh = (rotmat @ mesh_canonical.transpose(2, 1)).transpose(2, 1)
-                    verts = pred_mesh[batch_idx].numpy()
-                    mesh_obj = trimesh.Trimesh(
-                        vertices=verts,
-                        faces=self.f.numpy(),
-                        process=False,
-                    )
-                    obj_path = output_dir / f'diffusion_{name}_idx{batch_idx}.obj'
-                    mesh_obj.export(str(obj_path))
-                    print(f'  Saved: {obj_path}')
+            # if self.f is not None:
+                # import trimesh
+                # for name, mesh_canonical in results.items():
+                #     pred_mesh = (rotmat @ mesh_canonical.transpose(2, 1)).transpose(2, 1)
+                #     verts = pred_mesh[vis_idx].numpy()
+                #     mesh_obj = trimesh.Trimesh(
+                #         vertices=verts,
+                #         faces=self.f.numpy(),
+                #         process=False,
+                #     )
+                #     obj_path = output_dir / f'diffusion_{name}_idx{vis_idx}.obj'
+                #     mesh_obj.export(str(obj_path))
+                #     print(f'  Saved: {obj_path}')
             
             # 直接调用 plot_reproj_samples_() 保存所有步骤的重投影图像（横向拼接）
             if step_meshes:
@@ -1284,10 +1280,10 @@ class CVQDiffusion_Train(Train):
                 # 堆叠所有步骤的 mesh
                 step_meshes_stacked = torch.stack(step_meshes).cpu().numpy()
                 # 重复相机参数
-                pred_cam_repeated = pred_cam[batch_idx:batch_idx+1].repeat(len(step_meshes), 1).cpu().numpy()
+                pred_cam_repeated = pred_cam[vis_idx:vis_idx+1].repeat(len(step_meshes), 1).cpu().numpy()
                 
                 # 保存拼接后的重投影图像
-                save_path = output_dir / f'diffusion_steps_comparison_idx{batch_idx}.png'
+                save_path = output_dir / f'diffusion_steps_comparison_bidx{batch_idx}_idx{vis_idx}.png'
                 self.plot_reproj_samples_(
                     raw_img_repeated,
                     step_meshes_stacked,

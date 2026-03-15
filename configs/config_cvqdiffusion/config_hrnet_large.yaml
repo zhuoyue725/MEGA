@@ -4,7 +4,7 @@
 # ------------------------------------------------------------------ #
 
 train:
-  batch: 32          # 大batch size，提升训练稳定性
+  batch: 4          # 大batch size，提升训练稳定性
   lr: 1e-4           # 基础学习率
   device: 'cuda'
   total_epoch: 200   # 大数据集通常100-200个epoch足够
@@ -20,7 +20,7 @@ vqvaemesh:
   num_quantizer: 1
 
 modelconv:
-  batch: 32          # 与train.batch保持一致
+  batch: 4          # 与train.batch保持一致
   connection_folder: body_models/ConnectionMatrices/
   initial_connection_fn: body_models/ConnectionMatrices/_pool0.npy
   connection_layer_lst: ["pool0", "pool1", "pool2","pool3", "pool4", "pool5", "pool6","unpool6", "unpool5","unpool4","unpool3","unpool2","unpool1", "unpool0"]
