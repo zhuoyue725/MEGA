@@ -207,10 +207,16 @@ class DatasetHMRSquare(Dataset):
     def __getitem__(self, index):
         imgname = self.imgname[index]
         is_3dpw = "3DPW" in imgname or "EMDB" in imgname
+
         if not is_3dpw:
             img_path = f"datasets/{self.dataset_file[:-4]}/{imgname}"
         else:
             img_path = imgname
+        if "BEDLAM" in self.dataset_file[:-4]:
+            is_3dpw = True
+            is_bedlam = True
+            img_path = f"datasets/BEDLAM/train/{imgname}"
+
         img = cv2.imread(str(img_path))
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         if "closeup" in img_path:

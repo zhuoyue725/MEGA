@@ -229,7 +229,7 @@ class CVQMAE_Train(Train):
             is_3dpw = data["is_3dpw"] == True
             not_3dpw = data["is_3dpw"] == False
             reproj_loss = 0
-            if is_3dpw.any():
+            if is_3dpw.any(): # 3DPW/EMDB/BEDLAM
                 reproj_loss += reprojection_loss(
                     data["j2d"][is_3dpw][:, :, :2],
                     pred_mesh[is_3dpw],

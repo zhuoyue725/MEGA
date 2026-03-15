@@ -313,16 +313,18 @@ class CVQDiffusion_Train(Train):
             # 根据数据集类型计算重投影损失
             is_3dpw = data["is_3dpw"] == True
             not_3dpw = data["is_3dpw"] == False
+
             reproj_loss = 0
-            if is_3dpw.any():
+            if is_3dpw.any():  # 3DPW/EMDB/BEDLAM 24个关节
                 reproj_loss += reprojection_loss(
                     data["j2d"][is_3dpw][:, :, :2].to(torch.float32),
                     pred_mesh[is_3dpw],
                     pred_cam[is_3dpw].cpu(),
                     self.joints_reg_smpl,
-                    # visualize=True,
-                    # vis_path='./demo_out/joints2d',
-                    # vis_counter=f"epoch{epoch}_{self.step_count}"
+                    visualize=True,
+                    vis_path='./demo_out/joints2d_bl_gt',
+                    vis_counter=f"epoch{epoch}_{self.step_count}",
+                    raw_img=data["raw_img"][is_3dpw]
                 )
             if not_3dpw.any():
                 reproj_loss += reprojection_loss_conf(
@@ -365,7 +367,7 @@ class CVQDiffusion_Train(Train):
             # if self.step_count % 10 == 0:
             #     break
             # ---- 每 50 步绘制一次重建网格（参照 CVQMAE_Train）----
-            if self.step_count % 500 == 0 and self.f is not None:
+            if self.step_count % 5 == 0 and self.f is not None:
                 with torch.no_grad():
                     # 用当前 img 采样生成 token，解码为网格
                     sample_out  = self.model.sample(

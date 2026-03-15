@@ -50,15 +50,18 @@ backbone:
 
 # npz 数据集路径
 training_data:
-  file: 'configs/config_cvqdiffusion/emdb_train.txt'  # EMDB完整训练集
+  # file: 'configs/config_cvqdiffusion/emdb_train.txt'  # EMDB完整训练集
+  file: 'configs/config_cvqdiffusion/bedlam_train.txt'
   
 validation_data:
   # file: 'configs/config_cvqdiffusion/emdb_validation.txt'  # EMDB验证集
-  file: 'configs/config_cvqdiffusion/emdb_train_100.txt'  # EMDB完整训练集
+  # file: 'configs/config_cvqdiffusion/emdb_train_100.txt'  # EMDB完整训练集
+  file: 'configs/config_cvqdiffusion/bedlam_train.txt'  # EMDB完整训练集
 
 test_data:
-  file: 'configs/config_cvqdiffusion/emdb_train_100.txt'  # EMDB完整训练集
+  # file: 'configs/config_cvqdiffusion/emdb_train_100.txt'  # EMDB完整训练集
   # file: 'configs/config_cvqdiffusion/emdb_train.txt'  # EMDB测试集
+  file: 'configs/config_cvqdiffusion/bedlam_train.txt'  # EMDB完整训练集
 
 # 可选：从已有 checkpoint 恢复训练
 resume:
