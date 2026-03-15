@@ -135,7 +135,7 @@ class CVQDiffusion(nn.Module):
                 'mlp_hidden_times':     4,
             },
         }
-
+        self.diff_step = diff_step
         self.diffusion = DiffusionTransformer(
             content_emb_config=content_emb_cfg,
             condition_emb_config=None,      # condition provided externally
@@ -218,10 +218,16 @@ class CVQDiffusion(nn.Module):
         temperature: float = 1.0,
         return_logits: bool = False,
         content_token=None,
+        save_steps=None,
     ):
         """
         cond : [B, 3, 224, 224]
+        save_steps : list of int or None，指定要保存的扩散步数。
+                    如果提供，则调用 diffusion.sample_with_intermediate()
+                    例如 [20, 40, 60, 80]
+        
         Returns sampled content tokens, pred_rot [B, 6], pred_cam [B, 3], and optionally logits.
+        如果 save_steps 不为 None，还会返回 intermediate_tokens 和 intermediate_logits。
         """
         cond_feat = self.backbone(cond)          # [B, 720, 7, 7]
 
@@ -233,15 +239,30 @@ class CVQDiffusion(nn.Module):
 
         cond_emb  = self._encode_cond(cond_feat) # [B, 49, 1024]
 
-        out = self.diffusion.sample(
-            condition_token=None,
-            condition_mask=None,
-            condition_embed=cond_emb,
-            content_token=content_token,
-            filter_ratio=filter_ratio,
-            temperature=temperature,
-            return_logits=return_logits,
-        )
+        # 如果提供了 save_steps，调用 sample_with_intermediate()
+        if save_steps is not None:
+            out = self.diffusion.sample_with_intermediate(
+                condition_token=None,
+                condition_mask=None,
+                condition_embed=cond_emb,
+                content_token=content_token,
+                filter_ratio=filter_ratio,
+                temperature=temperature,
+                return_logits=return_logits,
+                save_steps=save_steps,
+            )
+        else:
+            # 否则调用标准的 sample()
+            out = self.diffusion.sample(
+                condition_token=None,
+                condition_mask=None,
+                condition_embed=cond_emb,
+                content_token=content_token,
+                filter_ratio=filter_ratio,
+                temperature=temperature,
+                return_logits=return_logits,
+            )
+        
         out['pred_rot'] = pred_rot
         out['pred_cam'] = pred_cam
         return out

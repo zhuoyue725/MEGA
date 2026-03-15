@@ -14,6 +14,7 @@ from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 from statistics import mean
 import matplotlib.pyplot as plt
+from pathlib import Path
 
 from mega.base import Train
 from mega.model.cvqdiffusion import CVQDiffusion
@@ -374,7 +375,9 @@ class CVQDiffusion_Train(Train):
                     rotmat   = rotation_6d_to_matrix(pred_rot).cpu()             # [B, 3, 3]
 
                     pred_tokens = sample_out['content_token']          # [B, 54]
-                    mesh_canonical   = self.vqvae.decode(pred_tokens).cpu() # [B, V, 3]
+                    # 将 mask token (512) 映射为 0，因为 VQVAE codebook 范围是 0-511
+                    pred_tokens_clipped = torch.clamp(pred_tokens, 0, 511)
+                    mesh_canonical   = self.vqvae.decode(pred_tokens_clipped).cpu() # [B, V, 3]
                     real_mesh   = data['mesh'][:4].cpu()
                     pred_mesh = (rotmat @ mesh_canonical.transpose(2, 1)).transpose(2, 1)
 
@@ -558,7 +561,9 @@ class CVQDiffusion_Train(Train):
                     imgs, filter_ratio=0.0, temperature=1.0
                 )
                 pred_tokens = sample_out['content_token']            # [B, 54]
-                mesh_canonical   = self.vqvae.decode(pred_tokens).cpu()   # [B, V, 3]
+                # 将 mask token (512) 映射为 0，因为 VQVAE codebook 范围是 0-511
+                pred_tokens_clipped = torch.clamp(pred_tokens, 0, 511)
+                mesh_canonical   = self.vqvae.decode(pred_tokens_clipped).cpu()   # [B, V, 3]
 
                 pred_rot = sample_out['pred_rot']
                 rotmat = rotation_6d_to_matrix(pred_rot).cpu()
@@ -733,6 +738,153 @@ class CVQDiffusion_Train(Train):
             # df.to_csv(f'{self.follow.path}/results_stochastic.csv', index=False)
 
         return lv2v
+
+    # ---------------------------------------------------------------- #
+    #  eval_stochastic_diffusion_step                                   #
+    # ---------------------------------------------------------------- #
+    def eval_stochastic_diffusion_step(
+        self,
+        diffusion_steps=None,
+        sample_size: int = 1,
+        temperature: float = 1.0,
+        vis_idx: int = 0,
+        output_dir: str = None,
+    ):
+        """
+        对验证集中指定样本的指定扩散步骤进行可视化。
+        
+        Args:
+            diffusion_steps: list of int，要可视化的扩散步数，例如 [20, 40, 60, 80]
+            sample_size: 每个步骤的采样次数（通常设为 1）
+            temperature: diffusion 采样温度
+            vis_idx: 验证集中要可视化的样本索引
+            output_dir: 输出目录，如果为 None 则使用 self.follow.path_samples_train
+        
+        Returns:
+            results: dict，包含各步骤的可视化结果
+        """
+        if diffusion_steps is None:
+            diffusion_steps = [20, 40, 60, 80]
+        
+        if output_dir is None:
+            output_dir = self.follow.path_samples
+        
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        self.model.eval()
+        
+        print(f'\n{"="*60}')
+        print(f'Evaluating diffusion steps: {diffusion_steps}')
+        print(f'Sample index: {vis_idx}')
+        print(f'Temperature: {temperature}')
+        print(f'Output directory: {output_dir}')
+        print(f'{"="*60}\n')
+        
+        with torch.no_grad():
+            count = 0
+            
+            for batch_idx, data in enumerate(tqdm(iter(self.validation_loader), 
+                                                   desc='eval_stochastic_diffusion_step')):
+                imgs = data['img'].to(self.device)  # [B, 3, 224, 224]
+                B = imgs.size(0)
+                
+                # 检查 vis_idx 是否在当前 batch 中
+                if vis_idx >= B:
+                    continue
+                
+                # 获取要可视化的样本
+                img_vis = imgs[vis_idx:vis_idx+1]  # [1, 3, 224, 224]
+                
+                print(f'\nBatch {batch_idx}, Sample {vis_idx}:')
+                print(f'  Image shape: {img_vis.shape}')
+                
+                # 对每个扩散步骤进行可视化
+                results = self.visualize_diffusion_steps(
+                    imgs=img_vis,
+                    save_steps=diffusion_steps,
+                    output_dir=str(output_dir),
+                    temperature=temperature,
+                    batch_idx=0,
+                )
+                
+                print(f'  Generated {len(results)} visualization files')
+                
+                # 创建对比图：将所有步骤的重投影图像拼接在一起
+                self._create_diffusion_step_comparison(
+                    diffusion_steps=diffusion_steps,
+                    output_dir=output_dir,
+                    batch_idx=0,
+                )
+                
+                count += 1
+                
+                # 只处理第一个包含 vis_idx 的 batch
+                break
+            
+            if count == 0:
+                print(f'Warning: vis_idx {vis_idx} not found in validation set')
+            else:
+                print(f'\n{"="*60}')
+                print(f'Visualization complete!')
+                print(f'Results saved to: {output_dir}')
+                print(f'{"="*60}\n')
+        
+        return results
+
+    def _create_diffusion_step_comparison(
+        self,
+        diffusion_steps,
+        output_dir,
+        batch_idx=0,
+    ):
+        """
+        将不同扩散步骤的重投影图像拼接成一张对比图。
+        
+        Args:
+            diffusion_steps: list of int，扩散步数
+            output_dir: 输出目录
+            batch_idx: batch 索引
+        """
+        from PIL import Image
+        import os
+        
+        output_dir = Path(output_dir)
+        
+        # 收集所有步骤的图像
+        images = []
+        step_names = []
+        
+        for step in sorted(diffusion_steps):
+            img_path = output_dir / f'diffusion_step_{step}_idx{batch_idx}_reprojection.png'
+            if img_path.exists():
+                images.append(Image.open(img_path))
+                step_names.append(f'Step {step}')
+        
+        # 添加最终结果
+        final_path = output_dir / f'diffusion_final_idx{batch_idx}_reprojection.png'
+        if final_path.exists():
+            images.append(Image.open(final_path))
+            step_names.append('Final')
+        
+        if len(images) == 0:
+            print('  Warning: No images found for comparison')
+            return
+        
+        # 拼接图像（横向）
+        total_width = sum(img.width for img in images)
+        max_height = max(img.height for img in images)
+        
+        combined = Image.new('RGB', (total_width, max_height))
+        x_offset = 0
+        for img in images:
+            combined.paste(img, (x_offset, 0))
+            x_offset += img.width
+        
+        # 保存对比图
+        comparison_path = output_dir / f'diffusion_steps_comparison_idx{batch_idx}.png'
+        combined.save(str(comparison_path))
+        print(f'  Saved comparison: {comparison_path}')
 
     # ---------------------------------------------------------------- #
     #  load                                                             #
@@ -1017,3 +1169,131 @@ class CVQDiffusion_Train(Train):
         if save is not None:
             plt.savefig(save)
             plt.close()
+
+    def visualize_diffusion_steps(
+        self,
+        imgs,
+        save_steps=None,
+        output_dir=None,
+        temperature=1.0,
+        batch_idx=0,
+    ):
+        """
+        可视化扩散过程中指定步骤的 mesh_token 结果。
+        
+        Args:
+            imgs: 输入图像 [B, 3, 224, 224]
+            save_steps: list of int，要保存的扩散步数，例如 [20, 40, 60, 80]
+            output_dir: 输出目录，如果为 None 则使用 self.follow.path_samples_train
+            temperature: 采样温度
+            batch_idx: 要可视化的 batch 索引
+        
+        Returns:
+            results: dict，包含各步骤的 mesh 和 token
+        """
+        if save_steps is None:
+            save_steps = [20, 40, 60, 80]
+        if output_dir is None:
+            output_dir = self.follow.path_samples_train
+        
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        device = self.device
+        
+        with torch.no_grad():
+            # 调用新的采样方法，获取中间步骤的 token
+            sample_out = self.model.sample(
+                imgs,
+                filter_ratio=0.0,
+                temperature=temperature,
+                return_logits=False,
+                save_steps=save_steps, # 这个会记录扩散过程的阶段结果
+            )
+            # sample_out2 = self.model.sample(
+            #     imgs,
+            #     filter_ratio=0.0,
+            #     temperature=temperature,
+            # )
+
+            final_tokens = final_tokens_v1 = sample_out['content_token'].to(self.device)
+            intermediate_tokens = sample_out.get('intermediate_tokens', {})
+            
+            # 解码所有中间步骤
+            results = {}
+            
+            # 最终结果
+            # 将 mask token (512) 映射为 0，因为 VQVAE codebook 范围是 0-511
+            final_tokens_clipped = torch.clamp(final_tokens_v1, 0, 511)
+            final_mesh_canonical_v1 = self.vqvae.decode(final_tokens_clipped).cpu()
+            
+            # 中间步骤
+            for step in sorted(intermediate_tokens.keys()):
+                tokens_step = intermediate_tokens[step].to(self.device)
+                # 将 mask token (512) 映射为 0，因为 VQVAE codebook 范围是 0-511
+                tokens_step_clipped = torch.clamp(tokens_step, 0, 511)
+                mesh_step = self.vqvae.decode(tokens_step_clipped).cpu()
+                results[f'step_{step}'] = mesh_step
+
+            # 获取旋转矩阵用于可视化
+            pred_rot = sample_out.get('pred_rot', torch.zeros(final_tokens.shape[0], 6, device=device))
+            pred_cam = sample_out.get('pred_cam', torch.zeros(final_tokens.shape[0], 3, device=device))
+            rotmat = rotation_6d_to_matrix(pred_rot).cpu()
+            
+            # 可视化：为每个步骤生成重投影图像
+            print(f'Visualizing {len(results)} steps...')
+            
+            # 收集所有步骤的 mesh
+            step_meshes = []
+            # 按数字排序而不是字符串排序
+            # 提取 key 中的数字部分进行排序
+            sorted_keys = sorted(results.keys(), key=lambda x: int(x.split('_')[1]) if x.startswith('step_') else float('inf'))
+            for name in sorted_keys:
+                mesh_canonical = results[name]
+                print(name)
+                # 应用旋转
+                pred_mesh = (rotmat @ mesh_canonical.transpose(2, 1)).transpose(2, 1)
+                step_meshes.append(pred_mesh[batch_idx])
+            
+            # 获取原始图像
+            raw_img = imgs.cpu().numpy().transpose(0, 2, 3, 1)
+            # 将图像从 [-1, 1] 范围转换为 [0, 1] 范围
+            raw_img = (raw_img + 1) / 2
+            raw_img = np.clip(raw_img, 0, 1)
+            raw_img_batch = raw_img[batch_idx:batch_idx+1]
+            
+            # 为每个步骤单独保存 OBJ 文件
+            if self.f is not None:
+                import trimesh
+                for name, mesh_canonical in results.items():
+                    pred_mesh = (rotmat @ mesh_canonical.transpose(2, 1)).transpose(2, 1)
+                    verts = pred_mesh[batch_idx].numpy()
+                    mesh_obj = trimesh.Trimesh(
+                        vertices=verts,
+                        faces=self.f.numpy(),
+                        process=False,
+                    )
+                    obj_path = output_dir / f'diffusion_{name}_idx{batch_idx}.obj'
+                    mesh_obj.export(str(obj_path))
+                    print(f'  Saved: {obj_path}')
+            
+            # 直接调用 plot_reproj_samples_() 保存所有步骤的重投影图像（横向拼接）
+            if step_meshes:
+                # 重复原始图像以匹配步骤数量
+                raw_img_repeated = raw_img_batch.repeat(len(step_meshes), axis=0)
+                # 堆叠所有步骤的 mesh
+                step_meshes_stacked = torch.stack(step_meshes).cpu().numpy()
+                # 重复相机参数
+                pred_cam_repeated = pred_cam[batch_idx:batch_idx+1].repeat(len(step_meshes), 1).cpu().numpy()
+                
+                # 保存拼接后的重投影图像
+                save_path = output_dir / f'diffusion_steps_comparison_idx{batch_idx}.png'
+                self.plot_reproj_samples_(
+                    raw_img_repeated,
+                    step_meshes_stacked,
+                    pred_cam_repeated,
+                    save=str(save_path),
+                )
+                print(f'  Saved comparison: {save_path}')
+            
+            return results
