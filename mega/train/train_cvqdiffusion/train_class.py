@@ -364,7 +364,7 @@ class CVQDiffusion_Train(Train):
             # if self.step_count % 10 == 0:
             #     break
             # ---- 每 50 步绘制一次重建网格（参照 CVQMAE_Train）----
-            if self.step_count % 10 == 0 and self.f is not None:
+            if self.step_count % 500 == 0 and self.f is not None:
                 with torch.no_grad():
                     # 用当前 img 采样生成 token，解码为网格
                     sample_out  = self.model.sample(

@@ -53,7 +53,8 @@ training_data:
   file: 'configs/config_cvqdiffusion/emdb_train.txt'  # EMDB完整训练集
   
 validation_data:
-  file: 'configs/config_cvqdiffusion/emdb_validation.txt'  # EMDB验证集
+  # file: 'configs/config_cvqdiffusion/emdb_validation.txt'  # EMDB验证集
+  file: 'configs/config_cvqdiffusion/emdb_train_100.txt'  # EMDB完整训练集
 
 test_data:
   file: 'configs/config_cvqdiffusion/emdb_test.txt'  # EMDB测试集

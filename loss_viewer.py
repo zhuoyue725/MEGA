@@ -24,7 +24,7 @@ def find_latest_loss_image(base_path=CHECKPOINT_BASE):
         return None
     
     # 查找所有loss.png文件
-    loss_files = list(base.glob("*/*/loss.png"))
+    loss_files = list(base.glob("*/*/loss_metrics.png"))
     
     if not loss_files:
         return None
@@ -70,6 +70,32 @@ def find_latest_compare_image(base_path=CHECKPOINT_BASE):
     # 按修改时间排序，返回最新的
     latest_file = max(compare_files, key=lambda p: p.stat().st_mtime)
     return str(latest_file)
+
+def get_all_reprojection_images(base_path=CHECKPOINT_BASE):
+    """
+    获取所有reprojection图片列表，按修改时间排序
+    """
+    base = Path(base_path)
+    if not base.exists():
+        return []
+    
+    reprojection_files = list(base.glob("*/*/samples_train/*_reprojection.png"))
+    # 按修改时间排序（最新的在前）
+    reprojection_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return [str(f) for f in reprojection_files]
+
+def get_all_compare_images(base_path=CHECKPOINT_BASE):
+    """
+    获取所有compare图片列表，按修改时间排序
+    """
+    base = Path(base_path)
+    if not base.exists():
+        return []
+    
+    compare_files = list(base.glob("*/*/samples_train/epoch*_step*_cmp-compare.png"))
+    # 按修改时间排序（最新的在前）
+    compare_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return [str(f) for f in compare_files]
 
 # 默认图像路径（自动查找最新的）
 LOSS_IMAGE_PATH = find_latest_loss_image() or "/home/zzb/pydata/recons/MEGA/checkpoint/CVQDIFFUSION/2026-03-14/16-21/loss.png"
@@ -252,6 +278,54 @@ HTML_TEMPLATE = """
             font-style: italic;
             padding: 40px;
         }
+        
+        .image-nav {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 15px;
+            gap: 15px;
+        }
+        
+        .nav-button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            font-size: 1.2em;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+            flex-shrink: 0;
+        }
+        
+        .nav-button:hover {
+            transform: scale(1.1);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+        }
+        
+        .nav-button:active {
+            transform: scale(0.95);
+        }
+        
+        .nav-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .image-counter {
+            flex: 1;
+            text-align: center;
+            color: #2d3748;
+            font-weight: 600;
+            font-size: 0.95em;
+        }
     </style>
 </head>
 <body>
@@ -302,7 +376,17 @@ HTML_TEMPLATE = """
             <div class="image-container">
                 <h2>🎯 Reprojection</h2>
                 {% if has_reprojection %}
-                <img id="reprojectionImage" src="/reprojection_image?t={{ timestamp }}" alt="Reprojection" />
+                <div class="image-path" id="reprojectionPath" style="background: #f0f4f8; padding: 10px; border-radius: 6px; margin-bottom: 12px; font-family: monospace; font-size: 0.85em; color: #2d3748; word-break: break-all; border-left: 3px solid #667eea;">
+                    加载中...
+                </div>
+                <img id="reprojectionImage" src="/reprojection_image?index=0&t={{ timestamp }}" alt="Reprojection" />
+                <div class="image-nav">
+                    <button class="nav-button" onclick="prevReprojection()" id="prevReprojBtn">◀</button>
+                    <div class="image-counter">
+                        <span id="reprojectionCounter">1 / {{ reprojection_count }}</span>
+                    </div>
+                    <button class="nav-button" onclick="nextReprojection()" id="nextReprojBtn">▶</button>
+                </div>
                 {% else %}
                 <div class="not-available">Reprojection图像暂不可用</div>
                 {% endif %}
@@ -311,7 +395,17 @@ HTML_TEMPLATE = """
             <div class="image-container">
                 <h2>🔍 Compare</h2>
                 {% if has_compare %}
-                <img id="compareImage" src="/compare_image?t={{ timestamp }}" alt="Compare" />
+                <div class="image-path" id="comparePath" style="background: #f0f4f8; padding: 10px; border-radius: 6px; margin-bottom: 12px; font-family: monospace; font-size: 0.85em; color: #2d3748; word-break: break-all; border-left: 3px solid #667eea;">
+                    加载中...
+                </div>
+                <img id="compareImage" src="/compare_image?index=0&t={{ timestamp }}" alt="Compare" />
+                <div class="image-nav">
+                    <button class="nav-button" onclick="prevCompare()" id="prevCompareBtn">◀</button>
+                    <div class="image-counter">
+                        <span id="compareCounter">1 / {{ compare_count }}</span>
+                    </div>
+                    <button class="nav-button" onclick="nextCompare()" id="nextCompareBtn">▶</button>
+                </div>
                 {% else %}
                 <div class="not-available">Compare图像暂不可用</div>
                 {% endif %}
@@ -319,7 +413,7 @@ HTML_TEMPLATE = """
         </div>
         
         <div class="controls">
-            <button onclick="refreshImages()">🔄 立即刷新</button>
+            <button onclick="refreshImages(true)">🔄 立即刷新</button>
             <div class="refresh-interval">
                 <label for="interval">刷新间隔:</label>
                 <select id="interval" onchange="changeInterval()">
@@ -341,9 +435,19 @@ HTML_TEMPLATE = """
         let refreshCount = 0;
         let intervalId = null;
         let currentInterval = 5000; // 默认5秒
+        let currentReprojectionIndex = 0;
+        let currentCompareIndex = 0;
+        let totalReprojectionImages = {{ reprojection_count }};
+        let totalCompareImages = {{ compare_count }};
         
-        function refreshImages() {
+        function refreshImages(resetToLatest = false) {
             const timestamp = new Date().getTime();
+            
+            // 如果是手动刷新，重置到最新图像
+            if (resetToLatest) {
+                currentReprojectionIndex = 0;
+                currentCompareIndex = 0;
+            }
             
             // 刷新Loss图像
             const lossImg = document.getElementById('lossImage');
@@ -354,18 +458,96 @@ HTML_TEMPLATE = """
             // 刷新Reprojection图像
             const reprojImg = document.getElementById('reprojectionImage');
             if (reprojImg) {
-                reprojImg.src = '/reprojection_image?t=' + timestamp;
+                reprojImg.src = '/reprojection_image?index=' + currentReprojectionIndex + '&t=' + timestamp;
             }
             
             // 刷新Compare图像
             const compareImg = document.getElementById('compareImage');
             if (compareImg) {
-                compareImg.src = '/compare_image?t=' + timestamp;
+                compareImg.src = '/compare_image?index=' + currentCompareIndex + '&t=' + timestamp;
+            }
+            
+            // 更新计数器和路径
+            if (resetToLatest) {
+                updateReprojectionCounter();
+                updateCompareCounter();
             }
             
             refreshCount++;
             document.getElementById('refreshCounter').textContent = '刷新次数: ' + refreshCount;
             document.getElementById('lastUpdate').textContent = '最后更新: ' + new Date().toLocaleTimeString('zh-CN');
+        }
+        
+        function updateReprojectionCounter() {
+            document.getElementById('reprojectionCounter').textContent = (currentReprojectionIndex + 1) + ' / ' + totalReprojectionImages;
+            document.getElementById('prevReprojBtn').disabled = currentReprojectionIndex === 0;
+            document.getElementById('nextReprojBtn').disabled = currentReprojectionIndex === totalReprojectionImages - 1;
+            updateReprojectionPath();
+        }
+        
+        function updateCompareCounter() {
+            document.getElementById('compareCounter').textContent = (currentCompareIndex + 1) + ' / ' + totalCompareImages;
+            document.getElementById('prevCompareBtn').disabled = currentCompareIndex === 0;
+            document.getElementById('nextCompareBtn').disabled = currentCompareIndex === totalCompareImages - 1;
+            updateComparePath();
+        }
+        
+        function updateReprojectionPath() {
+            fetch('/get_image_path?type=reprojection&index=' + currentReprojectionIndex)
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('reprojectionPath').textContent = data.path;
+                })
+                .catch(error => {
+                    document.getElementById('reprojectionPath').textContent = '无法获取路径';
+                });
+        }
+        
+        function updateComparePath() {
+            fetch('/get_image_path?type=compare&index=' + currentCompareIndex)
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('comparePath').textContent = data.path;
+                })
+                .catch(error => {
+                    document.getElementById('comparePath').textContent = '无法获取路径';
+                });
+        }
+        
+        function prevReprojection() {
+            if (currentReprojectionIndex > 0) {
+                currentReprojectionIndex--;
+                const timestamp = new Date().getTime();
+                document.getElementById('reprojectionImage').src = '/reprojection_image?index=' + currentReprojectionIndex + '&t=' + timestamp;
+                updateReprojectionCounter();
+            }
+        }
+        
+        function nextReprojection() {
+            if (currentReprojectionIndex < totalReprojectionImages - 1) {
+                currentReprojectionIndex++;
+                const timestamp = new Date().getTime();
+                document.getElementById('reprojectionImage').src = '/reprojection_image?index=' + currentReprojectionIndex + '&t=' + timestamp;
+                updateReprojectionCounter();
+            }
+        }
+        
+        function prevCompare() {
+            if (currentCompareIndex > 0) {
+                currentCompareIndex--;
+                const timestamp = new Date().getTime();
+                document.getElementById('compareImage').src = '/compare_image?index=' + currentCompareIndex + '&t=' + timestamp;
+                updateCompareCounter();
+            }
+        }
+        
+        function nextCompare() {
+            if (currentCompareIndex < totalCompareImages - 1) {
+                currentCompareIndex++;
+                const timestamp = new Date().getTime();
+                document.getElementById('compareImage').src = '/compare_image?index=' + currentCompareIndex + '&t=' + timestamp;
+                updateCompareCounter();
+            }
         }
         
         function changeInterval() {
@@ -387,6 +569,8 @@ HTML_TEMPLATE = """
         // 页面加载时立即刷新一次
         window.onload = function() {
             refreshImages();
+            updateReprojectionCounter();
+            updateCompareCounter();
         };
     </script>
 </body>
@@ -400,17 +584,39 @@ def index():
     
     # 每次访问时重新查找最新的图像
     latest_loss = find_latest_loss_image()
-    latest_reprojection = find_latest_reprojection_image()
-    latest_compare = find_latest_compare_image()
+    all_reprojection = get_all_reprojection_images()
+    all_compare = get_all_compare_images()
     
     return render_template_string(
         HTML_TEMPLATE, 
         loss_path=latest_loss or LOSS_IMAGE_PATH,
         timestamp=timestamp,
         has_loss=latest_loss is not None,
-        has_reprojection=latest_reprojection is not None,
-        has_compare=latest_compare is not None
+        has_reprojection=len(all_reprojection) > 0,
+        has_compare=len(all_compare) > 0,
+        reprojection_count=len(all_reprojection),
+        compare_count=len(all_compare),
+        training_time=os.path.dirname(latest_loss).split('/')[-2:] if latest_loss else "N/A"
     )
+
+@app.route('/get_image_path')
+def get_image_path():
+    """返回指定索引的图像路径"""
+    from flask import request, jsonify
+    image_type = request.args.get('type', '')
+    index = request.args.get('index', 0, type=int)
+    
+    if image_type == 'reprojection':
+        all_images = get_all_reprojection_images()
+    elif image_type == 'compare':
+        all_images = get_all_compare_images()
+    else:
+        return jsonify({'path': 'Unknown type'}), 400
+    
+    if all_images and 0 <= index < len(all_images):
+        return jsonify({'path': all_images[index]})
+    
+    return jsonify({'path': 'Not found'}), 404
 
 @app.route('/loss_image')
 def loss_image():
@@ -427,20 +633,30 @@ def loss_image():
 @app.route('/reprojection_image')
 def reprojection_image():
     """返回reprojection图像"""
-    latest_reprojection = find_latest_reprojection_image()
-    if latest_reprojection and os.path.exists(latest_reprojection):
-        return send_file(latest_reprojection, mimetype='image/png')
-    else:
-        return "Reprojection image not found", 404
+    from flask import request
+    index = request.args.get('index', 0, type=int)
+    
+    all_reprojection = get_all_reprojection_images()
+    if all_reprojection and 0 <= index < len(all_reprojection):
+        image_path = all_reprojection[index]
+        if os.path.exists(image_path):
+            return send_file(image_path, mimetype='image/png')
+    
+    return "Reprojection image not found", 404
 
 @app.route('/compare_image')
 def compare_image():
     """返回compare图像"""
-    latest_compare = find_latest_compare_image()
-    if latest_compare and os.path.exists(latest_compare):
-        return send_file(latest_compare, mimetype='image/png')
-    else:
-        return "Compare image not found", 404
+    from flask import request
+    index = request.args.get('index', 0, type=int)
+    
+    all_compare = get_all_compare_images()
+    if all_compare and 0 <= index < len(all_compare):
+        image_path = all_compare[index]
+        if os.path.exists(image_path):
+            return send_file(image_path, mimetype='image/png')
+    
+    return "Compare image not found", 404
 
 def main():
     global LOSS_IMAGE_PATH, REPROJECTION_IMAGE_PATH, COMPARE_IMAGE_PATH
