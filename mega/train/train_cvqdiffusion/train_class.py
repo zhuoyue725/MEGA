@@ -693,9 +693,28 @@ class CVQDiffusion_Train(Train):
                     # 取 vis_idx 样本的所有 sample_size 个采样结果横向拼接
                     idx = min(vis_idx, B - 1)
                     samples_for_idx = pred_mesh_all[:, idx]               # [S, V, 3]
+
                     save_path = (f'{self.follow.path_samples_train}/'
                                  f'stoch_step{count}_idx{idx}_samples.png')
                     self.plot_meshes_(samples_for_idx, show=False, rot=True, save=save_path)
+                    
+                    # 保存第 idx 个样例的重投影图像
+                    raw_img = data["raw_img"].cpu().numpy().transpose(0, 2, 3, 1)  # [B, 224, 224, 3]
+                    raw_img_idx = raw_img[idx:idx+1]  # [1, 224, 224, 3]
+                    raw_img_idx = raw_img_idx.repeat(sample_size, axis=0)  # [S, 224, 224, 3]
+                    
+                    pred_v_idx = pred_mesh_all[:, idx]  # [S, V, 3]
+                    pred_cam_idx = sample_out['pred_cam'].view(sample_size, B, -1)[:, idx]  # [S, 3]
+                    
+                    reproj_save_path = (f'{self.follow.path_samples_train}/'
+                                       f'stoch_step{count}_idx{idx}_reprojection.png')
+                    self.plot_reproj_samples_(
+                        raw_img_idx,
+                        pred_v_idx,
+                        pred_cam_idx,
+                        save=reproj_save_path,
+                    )
+
 
             print(
                 f'[stochastic S={sample_size} T={temperature}]  '
@@ -880,6 +899,69 @@ class CVQDiffusion_Train(Train):
         if save is not None:
             plt.savefig(save)
         plt.close()
+
+    def plot_reproj_samples_(
+        self,
+        images,
+        meshes,
+        cameras,
+        save: str = None,
+    ):
+        """
+        保存多个 sample 的重投影图像，横向拼接后保存为一张图。
+        
+        Args:
+            images: [S, H, W, 3] 原始图像（重复 S 次）
+            meshes: [S, V, 3] 预测的网格
+            cameras: [S, 3] 相机参数
+            save: 最终保存路径
+        """
+        import os
+        from PIL import Image
+        
+        rendered_img = []
+        render_reproj = PyRender_Renderer(faces=self.f)
+        
+        # 逐个保存每个 sample 的重投影图像
+        temp_files = []
+        for i, (img, vertices, camera) in enumerate(zip(images, meshes, cameras)):
+            rendered = visualize_reconstruction_pyrender(
+                img, vertices, camera, render_reproj
+            )
+            rendered_img.append(rendered)
+            
+            # 保存临时文件
+            if save is not None:
+                temp_path = save.replace('.png', f'_sample_{i}.png')
+                temp_files.append(temp_path)
+                
+                fig = plt.figure(figsize=(10, 10))
+                if rendered.shape[0] == 1:
+                    plt.imshow(rendered[0, :, :])
+                else:
+                    plt.imshow(rendered)
+                plt.axis('off')
+                plt.savefig(temp_path, bbox_inches='tight', pad_inches=0)
+                plt.close()
+        
+        # 横向拼接所有图像
+        if save is not None and temp_files:
+            pil_images = [Image.open(f) for f in temp_files]
+            total_width = sum(img.width for img in pil_images)
+            max_height = max(img.height for img in pil_images)
+            
+            combined = Image.new('RGB', (total_width, max_height))
+            x_offset = 0
+            for img in pil_images:
+                combined.paste(img, (x_offset, 0))
+                x_offset += img.width
+            
+            combined.save(save)
+            
+            # 删除临时文件
+            for temp_path in temp_files:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
 
     def plot_reproj_(
         self,

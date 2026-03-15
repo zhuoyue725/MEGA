@@ -39,7 +39,7 @@ print(os.listdir(args.path))
 
 @hydra.main(
     config_path='configs/config_cvqdiffusion',
-    config_name='config_hrnet',
+    config_name='config_hrnet_large',
     version_base=None,
 )
 def main(cfg: DictConfig):
@@ -98,6 +98,10 @@ def main(cfg: DictConfig):
     # ---------------------------------------------------------------- #
     #  MeshVQVAE                                                        #
     # ---------------------------------------------------------------- #
+    # 如果使用 eval_stochastic，需要将 modelconv.batch 乘以 sample_size
+    sample_size = 5  # 与下面 eval_stochastic 的 sample_size 保持一致
+    cfg.modelconv.batch = cfg.modelconv.batch * sample_size
+    
     convmesh_model = mesh_vq_vae.FullyConvAE(cfg.modelconv, test_mode=True)
     mesh_vqvae = mesh_vq_vae.MeshVQVAE(convmesh_model, **cfg.vqvaemesh)
     mesh_vqvae.load(path_model='checkpoint/MESH_VQVAE/mesh_vqvae_54')
@@ -154,7 +158,7 @@ def main(cfg: DictConfig):
     # V2V: 31.89  MPJPE: 28.88  PA-MPJPE: 19.38  (mm)
     # sto:
     # V2V: 21.20  MPJPE: 19.06  PA-MPJPE: 8.76  (mm)
-    trainer.eval_stochastic(sample_size=5, temperature=3.0, visualize=True, vis_idx=0)
+    trainer.eval_stochastic(sample_size=sample_size, temperature=1.0, visualize=True, vis_idx=0) # 采样1.0，设置其他值结果不行
 
 if __name__ == '__main__':
     main()
