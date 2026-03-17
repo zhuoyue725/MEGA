@@ -48,7 +48,7 @@ def orthographic_projection(X, camera):
     return X_2d
 
 
-def reprojection_loss(gt_2d, pred_v, pred_cam, joints_reg, visualize=False, vis_path=None, vis_counter=None, raw_img=None):
+def reprojection_loss_vis(gt_2d, pred_v, pred_cam, joints_reg, visualize=False, vis_path=None, vis_counter=None, raw_img=None):
     J_regressor_batch = joints_reg[None, :].expand(pred_v.shape[0], -1, -1).to(gt_2d)
     pred_3dkpt = torch.matmul(J_regressor_batch, pred_v)
     pred_2d = orthographic_projection(pred_3dkpt, pred_cam)
@@ -64,6 +64,12 @@ def reprojection_loss(gt_2d, pred_v, pred_cam, joints_reg, visualize=False, vis_
         visualize_gt_joints_2d(gt_2d[:,:,:2], save_path, raw_img=raw_img)
     return (l1_loss(pred_2d, gt_2d[:, :, :2]).mean(dim=-1) * gt_2d[:, :, -1]).mean()
 
+def reprojection_loss(gt_2d, pred_v, pred_cam, joints_reg):
+    J_regressor_batch = joints_reg[None, :].expand(pred_v.shape[0], -1, -1).to(gt_2d)
+    pred_3dkpt = torch.matmul(J_regressor_batch, pred_v) # [16, 9 , 6890] * [16, 6890, 3]
+    pred_2d = orthographic_projection(pred_3dkpt, pred_cam)
+    l1_loss = torch.nn.L1Loss(reduction="mean")
+    return l1_loss(pred_2d, gt_2d)
 
 def reprojection_loss_conf(gt_2d, pred_v, pred_cam, joints_reg):
     J_regressor_batch = joints_reg[None, :].expand(pred_v.shape[0], -1, -1).to(gt_2d)

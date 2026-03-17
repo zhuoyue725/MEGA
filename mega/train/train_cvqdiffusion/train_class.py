@@ -20,7 +20,7 @@ from mega.base import Train
 from mega.model.cvqdiffusion import CVQDiffusion
 from mega.data import MixedDataset
 from mega.utils.eval import pa_mpjpe, mpjpe, v2v
-from mega.utils.loss import reprojection_loss, reprojection_loss_conf
+from mega.utils.loss import reprojection_loss, reprojection_loss_vis, reprojection_loss_conf
 import pandas as pd
 from matplotlib.gridspec import GridSpec
 from ...utils.img_renderer import visualize_reconstruction_pyrender, PyRender_Renderer
@@ -317,7 +317,7 @@ class CVQDiffusion_Train(Train):
 
             reproj_loss = 0
             if is_3dpw.any():  # 3DPW/EMDB/BEDLAM 24个关节
-                reproj_loss += reprojection_loss(
+                reproj_loss += reprojection_loss_vis(
                     data["j2d"][is_3dpw].to(torch.float32),
                     pred_mesh[is_3dpw],
                     pred_cam[is_3dpw].cpu(),
@@ -458,7 +458,7 @@ class CVQDiffusion_Train(Train):
                 not_3dpw = data["is_3dpw"] == False
                 reproj_loss = 0
                 if is_3dpw.any():
-                    reproj_loss += reprojection_loss(
+                    reproj_loss += reprojection_loss_vis(
                         data["j2d"][is_3dpw].to(torch.float32),
                         pred_mesh[is_3dpw],
                         pred_cam[is_3dpw].cpu(),

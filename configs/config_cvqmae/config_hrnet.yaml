@@ -48,11 +48,19 @@ backbone:
   
 training_data:
   # file: 'configs/config_cvqmae/coco_train.txt'
-  file: 'configs/config_cvqmae/3dpw_train.txt'
+  # file: 'configs/config_cvqmae/3dpw_train.txt'
+  file: 'configs/config_cvqdiffusion/emdb_train_100.txt'
   
 validation_data:
-  file: 'configs/config_cvqmae/3dpw_validation.txt'
+  # file: 'configs/config_cvqmae/3dpw_validation.txt'
+  file: 'configs/config_cvqdiffusion/emdb_train_100.txt'
 
 test_data:
-  file: 'configs/config_cvqmae/3dpw_test.txt'
+  # file: 'configs/config_cvqmae/3dpw_test.txt'
+  file: 'configs/config_cvqdiffusion/emdb_train_100.txt'
+
+# 可选：从已有 checkpoint 恢复（用于 mesh_regressor.load）
+resume:
+  path: 'checkpoint/CVQMAE/mega_hrnet'           # 留空表示使用默认预训练: checkpoint/CVQMAE/mega_hrnet
+  optimizer: false
 

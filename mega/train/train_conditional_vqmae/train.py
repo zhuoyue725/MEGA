@@ -231,7 +231,7 @@ class CVQMAE_Train(Train):
             reproj_loss = 0
             if is_3dpw.any(): # 3DPW/EMDB/BEDLAM
                 reproj_loss += reprojection_loss(
-                    data["j2d"][is_3dpw][:, :, :2], # [:, :, :2]
+                    data["j2d"][is_3dpw][:, :, :2].to(torch.float32), # [:, :, :2]
                     pred_mesh[is_3dpw],
                     pred_cam[is_3dpw],
                     self.joints_reg_smpl,
@@ -512,7 +512,7 @@ class CVQMAE_Train(Train):
             reproj_loss = 0
             if is_3dpw.any():
                 reproj_loss += reprojection_loss(
-                    data["j2d"][is_3dpw][:, :, :2],
+                    data["j2d"][is_3dpw][:, :, :2].to(torch.float32),
                     pred_mesh[is_3dpw],
                     pred_cam[is_3dpw],
                     self.joints_reg_smpl,

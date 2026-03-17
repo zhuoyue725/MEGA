@@ -8,7 +8,7 @@ from mega import (
 )
 import mesh_vq_vae
 import hydra
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 import os
 import numpy as np
 import torch
@@ -47,7 +47,7 @@ def main(cfg: DictConfig):
         cfg.validation_data.file,
         augment=False,
         flip=False,
-        proportion=0.01,
+        proportion=0.5,
     )
 
     """ Backbone """
@@ -88,7 +88,9 @@ def main(cfg: DictConfig):
         p.numel() for p in mesh_regressor.parameters() if p.requires_grad
     )
     # Load the VQMAE pretrained on motion capture data
-    mesh_regressor.load("checkpoint/CVQMAE/mega_hrnet") # checkpoint/VQMAE/mega_pretrained
+    resume_path = OmegaConf.select(cfg, "resume.path", default="") or ""
+    mesh_regressor_ckpt = resume_path if resume_path else "checkpoint/CVQMAE/mega_hrnet"
+    mesh_regressor.load(mesh_regressor_ckpt)  # checkpoint/VQMAE/mega_pretrained
     print(f"Regressor: {pytorch_total_params}")
 
     """Joint regressor"""
