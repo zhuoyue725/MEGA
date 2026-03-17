@@ -207,7 +207,8 @@ class DatasetHMRSquare(Dataset):
     def __getitem__(self, index):
         imgname = self.imgname[index]
         is_3dpw = "3DPW" in imgname or "EMDB" in imgname
-
+        is_bedlam = False
+        
         if not is_3dpw:
             img_path = f"datasets/{self.dataset_file[:-4]}/{imgname}"
         else:
@@ -218,13 +219,16 @@ class DatasetHMRSquare(Dataset):
             img_path = f"datasets/BEDLAM/train/{imgname}"
 
         img = cv2.imread(str(img_path))
+        if img is None:
+            print(f"Warning: Failed to load image: {img_path}, using random sample instead")
+            return self.__getitem__(np.random.randint(0, len(self)))
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         if "closeup" in img_path:
             img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
 
         center = self.center[index]
-        if not is_3dpw:
-            scale = self.scale[index]
+        if not is_3dpw or is_bedlam:
+            scale = self.scale[index] # bedlam不变
         else:
             scale = 1 / self.scale[index]
 

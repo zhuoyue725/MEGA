@@ -14,85 +14,110 @@ app = Flask(__name__)
 # 默认checkpoint基础路径
 CHECKPOINT_BASE = "/home/zzb/pydata/recons/MEGA/checkpoint/CVQDIFFUSION"
 
-def find_latest_loss_image(base_path=CHECKPOINT_BASE):
+def get_latest_checkpoint_dir(base_path=CHECKPOINT_BASE):
     """
-    在checkpoint目录中查找最新的loss.png文件
-    遍历所有日期和时间文件夹，找到最新修改的loss.png
+    获取最新的checkpoint文件夹路径 (日期/时间)
     """
     base = Path(base_path)
     if not base.exists():
         return None
     
-    # 查找所有loss.png文件
-    loss_files = list(base.glob("*/*/loss_metrics.png"))
-    
-    if not loss_files:
+    # 获取所有日期文件夹
+    date_folders = sorted([d for d in base.iterdir() if d.is_dir()])
+    if not date_folders:
         return None
     
-    # 按修改时间排序，返回最新的
-    latest_file = max(loss_files, key=lambda p: p.stat().st_mtime)
-    return str(latest_file)
+    # 从最新的日期开始
+    for date_folder in reversed(date_folders):
+        time_folders = sorted([d for d in date_folder.iterdir() if d.is_dir()])
+        if time_folders:
+            # 返回最新的时间文件夹
+            return time_folders[-1]
+    
+    return None
+
+def find_latest_loss_image(base_path=CHECKPOINT_BASE):
+    """
+    在最新的checkpoint文件夹中查找loss_metrics.png
+    """
+    checkpoint_dir = get_latest_checkpoint_dir(base_path)
+    if not checkpoint_dir:
+        return None
+    
+    loss_file = checkpoint_dir / "loss_metrics.png"
+    if loss_file.exists():
+        return str(loss_file)
+    
+    return None
 
 def find_latest_reprojection_image(base_path=CHECKPOINT_BASE):
     """
-    在checkpoint目录中查找最新的reprojection图片
-    格式: xx_reprojection.png
+    在最新的checkpoint文件夹中查找reprojection图片
     """
-    base = Path(base_path)
-    if not base.exists():
+    checkpoint_dir = get_latest_checkpoint_dir(base_path)
+    if not checkpoint_dir:
         return None
     
-    # 查找所有reprojection图片
-    reprojection_files = list(base.glob("*/*/samples_train/*_reprojection.png"))
-    
-    if not reprojection_files:
+    samples_dir = checkpoint_dir / "samples_train"
+    if not samples_dir.exists():
         return None
     
-    # 按修改时间排序，返回最新的
-    latest_file = max(reprojection_files, key=lambda p: p.stat().st_mtime)
-    return str(latest_file)
+    reprojection_files = list(samples_dir.glob("*_reprojection*.png"))
+    if reprojection_files:
+        # 返回最新修改的
+        return str(max(reprojection_files, key=lambda p: p.stat().st_mtime))
+    
+    return None
 
 def find_latest_compare_image(base_path=CHECKPOINT_BASE):
     """
-    在checkpoint目录中查找最新的compare图片
-    格式: epoch*_step*_cmp-compare.png
+    在最新的checkpoint文件夹中查找compare图片
     """
-    base = Path(base_path)
-    if not base.exists():
+    checkpoint_dir = get_latest_checkpoint_dir(base_path)
+    if not checkpoint_dir:
         return None
     
-    # 查找所有compare图片
-    compare_files = list(base.glob("*/*/samples_train/epoch*_step*_cmp-compare.png"))
-    
-    if not compare_files:
+    samples_dir = checkpoint_dir / "samples_train"
+    if not samples_dir.exists():
         return None
     
-    # 按修改时间排序，返回最新的
-    latest_file = max(compare_files, key=lambda p: p.stat().st_mtime)
-    return str(latest_file)
+    compare_files = list(samples_dir.glob("epoch*_step*_cmp-compare.png"))
+    if compare_files:
+        # 返回最新修改的
+        return str(max(compare_files, key=lambda p: p.stat().st_mtime))
+    
+    return None
 
 def get_all_reprojection_images(base_path=CHECKPOINT_BASE):
     """
-    获取所有reprojection图片列表，按修改时间排序
+    获取当前checkpoint文件夹中的所有reprojection图片，按修改时间排序
     """
-    base = Path(base_path)
-    if not base.exists():
+    checkpoint_dir = get_latest_checkpoint_dir(base_path)
+    if not checkpoint_dir:
         return []
     
-    reprojection_files = list(base.glob("*/*/samples_train/*_reprojection.png"))
+    samples_dir = checkpoint_dir / "samples_train"
+    if not samples_dir.exists():
+        return []
+    
+    reprojection_files = list(samples_dir.glob("*_reprojection*.png"))
     # 按修改时间排序（最新的在前）
     reprojection_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     return [str(f) for f in reprojection_files]
 
 def get_all_compare_images(base_path=CHECKPOINT_BASE):
     """
-    获取所有compare图片列表，按修改时间排序
+    获取当前checkpoint文件夹中的所有compare图片，按修改时间排序
     """
-    base = Path(base_path)
-    if not base.exists():
+    checkpoint_dir = get_latest_checkpoint_dir(base_path)
+    if not checkpoint_dir:
         return []
     
-    compare_files = list(base.glob("*/*/samples_train/epoch*_step*_cmp-compare.png"))
+    samples_dir = checkpoint_dir / "samples_train"
+    if not samples_dir.exists():
+        return []
+    
+    compare_files = list(samples_dir.glob("epoch*_step*_cmp-compare.png"))
     # 按修改时间排序（最新的在前）
     compare_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     return [str(f) for f in compare_files]

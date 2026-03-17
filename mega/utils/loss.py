@@ -59,10 +59,10 @@ def reprojection_loss(gt_2d, pred_v, pred_cam, joints_reg, visualize=False, vis_
         counter_str = f"_{vis_counter}" if vis_counter is not None else ""
         save_path = os.path.join(vis_path, f"joints2d_gt_comparison{counter_str}.png")
         # if raw_img is not None:
-        #     visualize_joints_on_image(raw_img, pred_2d, gt_2d, save_path)
+        # visualize_joints_on_image(raw_img, pred_2d, gt_2d[:,:,:2], save_path)
         # else:
-        visualize_gt_joints_2d(gt_2d, save_path, raw_img=raw_img)
-    return l1_loss(pred_2d, gt_2d)
+        visualize_gt_joints_2d(gt_2d[:,:,:2], save_path, raw_img=raw_img)
+    return (l1_loss(pred_2d, gt_2d[:, :, :2]).mean(dim=-1) * gt_2d[:, :, -1]).mean()
 
 
 def reprojection_loss_conf(gt_2d, pred_v, pred_cam, joints_reg):
@@ -140,13 +140,13 @@ def visualize_gt_joints_2d(gt_2d, save_path, img_size=512, raw_img=None):
         cv2.circle(img, pt, 6, (0, 0, 255), -1)
         cv2.circle(img, pt, 6, (0, 0, 0), 1)  # 黑色边框
         cv2.putText(img, str(i), (pt[0] + 10, pt[1] + 10), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
     
     # 添加标题和信息
-    cv2.putText(img, "Ground Truth Joints", (10, 30), 
-               cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2)
-    cv2.putText(img, f"Joints: {num_joints}", (10, 70), 
-               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
+    # cv2.putText(img, "Ground Truth Joints", (10, 30), 
+    #            cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2)
+    # cv2.putText(img, f"Joints: {num_joints}", (10, 70), 
+    #            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
     
     # 保存图像
     cv2.imwrite(save_path, img)

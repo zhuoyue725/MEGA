@@ -255,6 +255,7 @@ class CVQDiffusion_Train(Train):
         self.config_training = config_training
         self.load_epoch = 0
         self.step_count = 0    # 全局迭代步数，用于控制可视化频率
+        self.save_every_n_steps = config_training.get('save_every_n_steps', None)  # 每N步保存一次，None表示按epoch保存
         
         # ---- 损失项记录 ----
         self.train_loss: list = []      # 总损失
@@ -317,14 +318,14 @@ class CVQDiffusion_Train(Train):
             reproj_loss = 0
             if is_3dpw.any():  # 3DPW/EMDB/BEDLAM 24个关节
                 reproj_loss += reprojection_loss(
-                    data["j2d"][is_3dpw][:, :, :2].to(torch.float32),
+                    data["j2d"][is_3dpw].to(torch.float32),
                     pred_mesh[is_3dpw],
                     pred_cam[is_3dpw].cpu(),
                     self.joints_reg_smpl,
-                    visualize=True,
-                    vis_path='./demo_out/joints2d_bl_gt',
-                    vis_counter=f"epoch{epoch}_{self.step_count}",
-                    raw_img=data["raw_img"][is_3dpw]
+                    # visualize=True,
+                    # vis_path='./demo_out/joints2d_bl_gt_sub',
+                    # vis_counter=f"epoch{epoch}_{self.step_count}",
+                    # raw_img=data["raw_img"][is_3dpw],
                 )
             if not_3dpw.any():
                 reproj_loss += reprojection_loss_conf(
@@ -364,10 +365,22 @@ class CVQDiffusion_Train(Train):
             
             self.step_count += 1
 
-            # if self.step_count % 10 == 0:
-            #     break
+            # ---- 每 N 步保存一次 checkpoint（如果配置了 save_every_n_steps）----
+            if self.save_every_n_steps and self.step_count % self.save_every_n_steps == 0:
+                parameters = dict(
+                    model=self.model.state_dict(),
+                    optimizer=self.optimizer.state_dict(),
+                    scheduler=self.lr_scheduler.state_dict(),
+                    epoch=epoch,
+                    step=self.step_count,
+                    loss=loss.item(),
+                )
+                checkpoint_path = str(self.follow.path / f'checkpoint_step_{self.step_count}.pth')
+                torch.save(parameters, checkpoint_path)
+                print(f'\t [Step {self.step_count}] checkpoint saved (loss={loss.item():.4f})')
+
             # ---- 每 50 步绘制一次重建网格（参照 CVQMAE_Train）----
-            if self.step_count % 5 == 0 and self.f is not None:
+            if self.step_count % 1000 == 0 and self.f is not None:
                 with torch.no_grad():
                     # 用当前 img 采样生成 token，解码为网格
                     sample_out  = self.model.sample(
@@ -391,7 +404,7 @@ class CVQDiffusion_Train(Train):
                         pred_v[:4],
                         cam[:4],
                         show=False,
-                        save=f"{self.follow.path_samples_train}/{epoch}_reprojection.png",
+                        save=f"{self.follow.path_samples_train}/{epoch}_reprojection_step={self.step_count}.png",
                     )
                     # 保存 pred_mesh 为 obj 文件
                     # import trimesh
@@ -405,7 +418,6 @@ class CVQDiffusion_Train(Train):
                     #         process=False,
                     #     )
                     #     mesh_obj.export(str(obj_dir / f'epoch{epoch}_step{self.step_count}_{i}.obj'))
-
 
                 save_prefix = (f'{self.follow.path_samples_train}/'
                                f'epoch{epoch}_step{self.step_count}_cmp')
@@ -447,7 +459,7 @@ class CVQDiffusion_Train(Train):
                 reproj_loss = 0
                 if is_3dpw.any():
                     reproj_loss += reprojection_loss(
-                        data["j2d"][is_3dpw][:, :, :2].to(torch.float32),
+                        data["j2d"][is_3dpw].to(torch.float32),
                         pred_mesh[is_3dpw],
                         pred_cam[is_3dpw].cpu(),
                         self.joints_reg_smpl,
