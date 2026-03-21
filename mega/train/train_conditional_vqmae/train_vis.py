@@ -189,11 +189,11 @@ class CVQMAE_Train(Train):
                 indices = self.vqvae.get_codebook_indices(
                     mesh.to(self.device),
                 )
-                img_features = data["img"].to(self.device) # [16, 3, 224, 224]
+                img_features = data["img"].to(self.device)
 
             if self.vit_backbone:
                 predicted_indices, pred_rot, pred_cam, mask = self.model(
-                    indices, img_features[:, :, :, 32:-32] # [224, 160]
+                    indices, img_features[:, :, :, 32:-32]
                 )
             else:
                 predicted_indices, pred_rot, pred_cam, mask = self.model(
@@ -229,9 +229,9 @@ class CVQMAE_Train(Train):
             is_3dpw = data["is_3dpw"] == True
             not_3dpw = data["is_3dpw"] == False
             reproj_loss = 0
-            if is_3dpw.any(): # 3DPW/EMDB/BEDLAM
+            if is_3dpw.any():
                 reproj_loss += reprojection_loss(
-                    data["j2d"][is_3dpw][:, :, :2].to(torch.float32), # [:, :, :2]
+                    data["j2d"][is_3dpw][:, :, :2],
                     pred_mesh[is_3dpw],
                     pred_cam[is_3dpw],
                     self.joints_reg_smpl,
@@ -512,7 +512,7 @@ class CVQMAE_Train(Train):
             reproj_loss = 0
             if is_3dpw.any():
                 reproj_loss += reprojection_loss(
-                    data["j2d"][is_3dpw][:, :, :2].to(torch.float32),
+                    data["j2d"][is_3dpw][:, :, :2],
                     pred_mesh[is_3dpw],
                     pred_cam[is_3dpw],
                     self.joints_reg_smpl,
@@ -782,6 +782,7 @@ class CVQMAE_Train(Train):
             df = pd.DataFrame(dict_results)
             df.to_csv(f"{self.follow.path}/results.csv", index=False)
 
+
     def eval_stochastic_visualize_step(self, steps=5, temp=1, sample_size=1, max_samples=10, sample_idx=0):
         """
         可视化每一步的生成过程
@@ -964,7 +965,7 @@ class CVQMAE_Train(Train):
                         final_save_path = f"{self.follow.path_samples}/{count}_stochastic_variety_s{sample_size}_t{temp}.png"
                         cv2.imwrite(final_save_path, concatenated)
                         
-                        print(f"Sample {count}: 已保存 {sample_size} 个随机采样结果的拼接图: {final_save_path}")
+                        print(f"Sample {count}: 已保存 {sample_size} 个随机采样结果的拼接图")
 
     def load(self, path: str = "", optimizer: bool = True):
         print("LOAD [", end="")

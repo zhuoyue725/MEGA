@@ -1,1 +1,1 @@
-datasets/3DPW/3DPW_occ.npz
+datasets/3DPW/3dpw-occ_v2.npz

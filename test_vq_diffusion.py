@@ -99,7 +99,7 @@ def main(cfg: DictConfig):
     #  MeshVQVAE                                                        #
     # ---------------------------------------------------------------- #
     # 如果使用 eval_stochastic，需要将 modelconv.batch 乘以 sample_size
-    sample_size = 5  # 与下面 eval_stochastic 的 sample_size 保持一致
+    sample_size = 1  # 与下面 eval_stochastic 的 sample_size 保持一致
     cfg.modelconv.batch = cfg.modelconv.batch * sample_size
     
     convmesh_model = mesh_vq_vae.FullyConvAE(cfg.modelconv, test_mode=True)
@@ -158,8 +158,10 @@ def main(cfg: DictConfig):
     # V2V: 31.89  MPJPE: 28.88  PA-MPJPE: 19.38  (mm)
     # sto:
     # V2V: 21.20  MPJPE: 19.06  PA-MPJPE: 8.76  (mm)
-    trainer.eval_stochastic(sample_size=sample_size, temperature=1.0, visualize=True, vis_idx=2) # 采样1.0，设置其他值结果不行
-    # trainer.eval_stochastic_diffusion_step(diffusion_steps=[25, 50, 75, 100], temperature=1.0, vis_idx=1)
+    # trainer.eval_stochastic(sample_size=sample_size, temperature=1.0, visualize=True, vis_idx=2) # 采样1.0，设置其他值结果不行
+    # diffusion_steps = list(range(99, -1, -5))
+    diffusion_steps = [99, 79, 59, 39, 19, 9,8,7,6,5,4,3,2,1,0]
+    trainer.eval_stochastic_diffusion_step(diffusion_steps=diffusion_steps, temperature=1.0, vis_idx=1) # 99开始 0结束
 
 if __name__ == '__main__':
     main()

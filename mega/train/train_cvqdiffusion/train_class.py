@@ -816,6 +816,7 @@ class CVQDiffusion_Train(Train):
                     output_dir=str(output_dir),
                     temperature=temperature,
                     batch_idx=batch_idx,
+                    gt_tokens = self.vqvae.get_codebook_indices(data['local_mesh'].to(self.device))[vis_idx:vis_idx+1]
                 )
                 
                 print(f'  Generated {len(results)} visualization files')
@@ -1187,6 +1188,7 @@ class CVQDiffusion_Train(Train):
         temperature=1.0,
         batch_idx=0,
         vis_idx=0,
+        gt_tokens=None,
     ):
         """
         可视化扩散过程中指定步骤的 mesh_token 结果。
@@ -1229,13 +1231,20 @@ class CVQDiffusion_Train(Train):
             final_tokens = final_tokens_v1 = sample_out['content_token'].to(self.device)
             intermediate_tokens = sample_out.get('intermediate_tokens', {})
             
+            self.visualize_mask_tokens_text(
+                intermediate_tokens=intermediate_tokens,
+                save_steps=save_steps,
+                gt_tokens=gt_tokens.cpu(),
+                output_path='demo_out/mask_vis/mask_step_text.png'
+            )
+
             # 解码所有中间步骤
             results = {}
             
             # 最终结果
             # 将 mask token (512) 映射为 0，因为 VQVAE codebook 范围是 0-511
-            final_tokens_clipped = torch.clamp(final_tokens_v1, 0, 511)
-            final_mesh_canonical_v1 = self.vqvae.decode(final_tokens_clipped).cpu()
+            # final_tokens_clipped = torch.clamp(final_tokens_v1, 0, 511)
+            # final_mesh_canonical_v1 = self.vqvae.decode(final_tokens_clipped).cpu()
             
             # 中间步骤
             for step in sorted(intermediate_tokens.keys()):
@@ -1245,7 +1254,7 @@ class CVQDiffusion_Train(Train):
                 mesh_step = self.vqvae.decode(tokens_step_clipped).cpu()
                 results[f'step_{step}'] = mesh_step
 
-            results[f'step_{self.model.diff_step}'] = final_mesh_canonical_v1
+            # results[f'step_{self.model.diff_step}'] = final_mesh_canonical_v1
             # 获取旋转矩阵用于可视化
             pred_rot = sample_out.get('pred_rot', torch.zeros(final_tokens.shape[0], 6, device=device))
             pred_cam = sample_out.get('pred_cam', torch.zeros(final_tokens.shape[0], 3, device=device))
@@ -1256,9 +1265,9 @@ class CVQDiffusion_Train(Train):
             
             # 收集所有步骤的 mesh
             step_meshes = []
-            # 按数字排序而不是字符串排序
+            # 按数字从大到小排序
             # 提取 key 中的数字部分进行排序
-            sorted_keys = sorted(results.keys(), key=lambda x: int(x.split('_')[1]) if x.startswith('step_') else float('inf'))
+            sorted_keys = sorted(results.keys(), key=lambda x: int(x.split('_')[1]) if x.startswith('step_') else float('inf'), reverse=True)
             for name in sorted_keys:
                 mesh_canonical = results[name]
                 # 应用旋转
@@ -1307,3 +1316,235 @@ class CVQDiffusion_Train(Train):
                 print(f'  Saved comparison: {save_path}')
             
             return results
+
+    def visualize_mask_steps_Correct(self, intermediate_tokens, gt_tokens, save_steps, output_path='demo_out/mask_vis/correct_step.png'):
+        """
+        可视化 Token 生成的相似度（黑白灰度版）。
+        黑色 (0.0) = Mask
+        灰色 -> 白色 (0.2 -> 1.0) = 相似度从低到高
+        """
+        # 1. 准备 GT Embedding (处理设备)
+        gt_tokens = gt_tokens.to(self.device)
+        MASK_THRESHOLD = 512
+        
+        with torch.no_grad():
+            # 安全 Clamp，防止 GT 越界导致 CUDA Error
+            gt_embeddings = self.vqvae.get_embeddings(torch.clamp(gt_tokens, 0, MASK_THRESHOLD - 1))
+        
+        sorted_steps = sorted(save_steps)
+        plot_rows = []
+        available_keys = sorted(intermediate_tokens.keys())
+        
+        for step in sorted_steps:
+            closest_key = min(available_keys, key=lambda x: abs(x - step))
+            token_tensor = intermediate_tokens[closest_key]
+            
+            if not isinstance(token_tensor, torch.Tensor):
+                token_tensor = torch.tensor(token_tensor, dtype=torch.long)
+                
+            # 记录 Mask 位置 (CPU)
+            tokens_cpu = token_tensor.detach().cpu().numpy().flatten()
+            is_not_mask = tokens_cpu < MASK_THRESHOLD
+            
+            # 2. 安全提取 Embedding (处理 CUDA 越界)
+            safe_tokens = torch.clamp(token_tensor.to(self.device), 0, MASK_THRESHOLD - 1)
+            
+            with torch.no_grad():
+                pred_embeddings = self.vqvae.get_embeddings(safe_tokens)
+                # 计算余弦相似度 [-1, 1]
+                cos_sim = torch.nn.functional.cosine_similarity(pred_embeddings, gt_embeddings, dim=2)
+                cos_sim_np = cos_sim.squeeze(0).cpu().numpy()
+                
+            # 3. 灰度映射逻辑
+            # 我们将相似度 [-1, 1] 映射到 [0.2, 1.0] 灰度区间
+            # 这样即使是最不相似的 Token (0.2) 也会比 Mask (0.0) 亮一点点
+            similarity_scores = 0.6 + (cos_sim_np * 0.4) 
+            
+            # 初始化这一行，默认全黑 (0.0)
+            row_display_values = np.zeros(len(tokens_cpu), dtype=np.float32)
+            
+            # 只在非 Mask 位置填充灰度值
+            row_display_values[is_not_mask] = similarity_scores[is_not_mask]
+            
+            plot_rows.append(row_display_values)
+
+        plot_matrix = np.vstack(plot_rows)
+        
+        # --- 绘图逻辑 ---
+        fig, ax = plt.subplots(figsize=(15, 0.6 * len(sorted_steps) + 1.5))
+        
+        # 使用灰度图 cmap='gray'
+        # vmin=0 (黑), vmax=1 (白)
+        im = ax.imshow(plot_matrix, cmap='gray', aspect='auto', interpolation='nearest', vmin=0, vmax=1)
+        
+        # 装饰
+        ax.set_yticks(np.arange(len(sorted_steps)))
+        ax.set_yticklabels([f"Step {s}" for s in sorted_steps])
+        ax.set_xticks(np.arange(0, 55, 5))
+        ax.set_xlabel("Token Index", fontsize=10)
+        ax.set_ylabel("Diffusion Steps (0 at top)", fontsize=10)
+        ax.set_title("Token Semantic Similarity (Black: Mask | White: Matched)", fontsize=12, pad=15)
+        
+        # 添加简单的 Colorbar
+        cbar = plt.colorbar(im, ax=ax, pad=0.02)
+        cbar.set_ticks([0, 0.2, 1.0])
+        cbar.set_ticklabels(['Mask', 'Low Sim', 'High Sim'])
+
+        # 网格线
+        ax.set_xticks(np.arange(-0.5, 54, 1), minor=True)
+        ax.set_yticks(np.arange(-0.5, len(sorted_steps), 1), minor=True)
+        ax.grid(which='minor', color='red', linestyle='-', linewidth=0.5, alpha=0.2) # 灰度图用淡红细线看格点很清晰
+        ax.tick_params(which='minor', size=0)
+
+        # 保存
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        plt.savefig(output_path, bbox_inches='tight', dpi=300, facecolor='white')
+        plt.close()
+        
+        print(f"Grayscale visualization saved to: {output_path}")
+
+    def visualize_mask_steps(self, intermediate_tokens, save_steps, output_path='demo_out/mask_vis/mask_step.png'):
+        """
+        可视化 Token 掩码状态。
+        纵坐标：顶部为 Step 0（生成的 Token 最多），底部为 Step 99（基本全为 Mask）。
+        """
+        from matplotlib.colors import ListedColormap
+        # 1. 确保 save_steps 是升序排列 (0, ..., 99)
+        # 这样在 imshow 中，索引 0 (Step 0) 就会在最上方
+        sorted_steps = sorted(save_steps)
+        
+        # 掩码判定阈值（根据你提供的数据，512及以上为掩码）
+        MASK_THRESHOLD = 512 
+        
+        plot_rows = []
+        available_keys = sorted(intermediate_tokens.keys())
+        
+        for step in sorted_steps:
+            # 寻找与目标步数最接近的 key
+            closest_key = min(available_keys, key=lambda x: abs(x - step))
+            
+            token_tensor = intermediate_tokens[closest_key]
+            
+            # 转换为 Numpy 并处理维度
+            if torch.is_tensor(token_tensor):
+                tokens = token_tensor.detach().cpu().numpy().flatten()
+            else:
+                tokens = np.array(token_tensor).flatten()
+                
+            # 逻辑：有效 Token (<512) 为 1 (绿色), 掩码 (>=512) 为 0 (黑色)
+            mask_status = (tokens < MASK_THRESHOLD).astype(int)
+            plot_rows.append(mask_status)
+            
+        # 堆叠成矩阵 [len(save_steps), 54]
+        plot_matrix = np.vstack(plot_rows)
+        
+        # 2. 绘图设置
+        # figsize 宽度设为 12 左右，高度根据步数动态增加
+        fig, ax = plt.subplots(figsize=(12, 0.6 * len(sorted_steps) + 1))
+        
+        # 定义颜色：0 -> 黑色 (Mask), 1 -> 绿色 (Token)
+        cmap = ListedColormap(['black', '#32CD32']) # 使用亮绿色
+        
+        # origin='upper' 是默认值，矩阵第一行（Step 0）会在最上面
+        im = ax.imshow(plot_matrix, cmap=cmap, aspect='auto', interpolation='nearest')
+        
+        # 3. 坐标轴修饰
+        ax.set_yticks(np.arange(len(sorted_steps)))
+        ax.set_yticklabels([f"Step {s}" for s in sorted_steps])
+        
+        ax.set_xticks(np.arange(0, 55, 5))
+        ax.set_xlabel("Token Index", fontsize=10)
+        ax.set_ylabel("Diffusion Step (0 at top, 99 at bottom)", fontsize=10)
+        ax.set_title("Mask Visibility Over Steps", fontsize=12, pad=10)
+        
+        # 添加网格感
+        ax.set_xticks(np.arange(-0.5, 54, 1), minor=True)
+        ax.set_yticks(np.arange(-0.5, len(sorted_steps), 1), minor=True)
+        ax.grid(which='minor', color='white', linestyle='-', linewidth=0.5, alpha=0.15)
+        ax.tick_params(which='minor', size=0)
+
+        # 4. 保存图片
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        plt.savefig(output_path, bbox_inches='tight', dpi=300)
+        plt.close()
+        
+        print(f"可视化已保存至: {output_path}")
+
+    def visualize_mask_tokens_text(self, intermediate_tokens, gt_tokens, save_steps, output_path='demo_out/mask_vis/token_text.png'):
+        """
+        直接打印每个 Token 的索引值。
+        纵坐标：顶部为 Step 0，底部为 Step 99。
+        数值：单元格内显示具体的 Token ID，Mask 显示为 'M' 或 '512'。
+        背景：黑色=Mask，白色=已生成 Token。
+        """
+        # 1. 基础设置
+        sorted_steps = sorted(save_steps)
+        MASK_THRESHOLD = 512
+        num_tokens = 54
+        
+        # 确保 gt_tokens 在 CPU 上便于对比
+        gt_cpu = gt_tokens.detach().cpu().numpy().flatten()
+        
+        available_keys = sorted(intermediate_tokens.keys())
+        
+        # 2. 创建画布
+        # 由于要写数字，每个格子需要大一点，增加 figsize
+        fig, ax = plt.subplots(figsize=(24, 0.8 * len(sorted_steps) + 2))
+        
+        # 设置背景色矩阵 (0=黑/Mask, 1=白/Token)
+        bg_matrix = np.zeros((len(sorted_steps), num_tokens))
+
+        for row_idx, step in enumerate(sorted_steps):
+            closest_key = min(available_keys, key=lambda x: abs(x - step))
+            tokens = intermediate_tokens[closest_key]
+            
+            if torch.is_tensor(tokens):
+                tokens = tokens.detach().cpu().numpy().flatten()
+            else:
+                tokens = np.array(tokens).flatten()
+                
+            for col_idx, val in enumerate(tokens):
+                if val < MASK_THRESHOLD:
+                    bg_matrix[row_idx, col_idx] = 1  # 设为白色背景
+                    
+                    # 判定对错，决定文字颜色：对=绿色，错=红色
+                    is_correct = (val == gt_cpu[col_idx])
+                    text_color = 'green' if is_correct else 'red'
+                    
+                    # 在格子里写上 Token 索引
+                    ax.text(col_idx, row_idx, str(int(val)), 
+                            ha='center', va='center', fontsize=9, 
+                            color=text_color, fontweight='bold')
+                else:
+                    # 掩码位置写 'M'，文字设为灰色
+                    ax.text(col_idx, row_idx, 'M', 
+                            ha='center', va='center', fontsize=9, 
+                            color='gray')
+
+        # 3. 绘制背景网格
+        # 使用 gray 映射，0=黑，1=白
+        ax.imshow(bg_matrix, cmap='gray', aspect='auto', interpolation='nearest', vmin=0, vmax=1.5)
+
+        # 4. 坐标轴装饰
+        ax.set_yticks(np.arange(len(sorted_steps)))
+        ax.set_yticklabels([f"Step {s}" for s in sorted_steps])
+        
+        ax.set_xticks(np.arange(num_tokens))
+        ax.set_xticklabels(np.arange(num_tokens), fontsize=8)
+        
+        ax.set_xlabel("Token Index", fontsize=12)
+        ax.set_ylabel("Diffusion Steps", fontsize=12)
+        ax.set_title("Token Index Values Over Steps\n(Green: Correct | Red: Incorrect | M: Mask)", fontsize=14, pad=20)
+
+        # 绘制格线，让数字被框起来
+        ax.set_xticks(np.arange(-0.5, num_tokens, 1), minor=True)
+        ax.set_yticks(np.arange(-0.5, len(sorted_steps), 1), minor=True)
+        ax.grid(which='minor', color='#333333', linestyle='-', linewidth=1)
+        ax.tick_params(which='minor', size=0)
+
+        # 5. 保存
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        plt.savefig(output_path, bbox_inches='tight', dpi=200)
+        plt.close()
+        
+        print(f"Token text visualization saved to: {output_path}")

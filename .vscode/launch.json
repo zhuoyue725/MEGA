@@ -101,6 +101,15 @@
         {
             // Deterministic testing
             // python test_mega.py checkpoint.model_path=checkpoint/CVQMAE/2026-1-16/21-32-BL/model_checkpoint/3dpw_test
+            "name": "Python 调试程序: Test VQDiffusion Stochastic.py",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/test_vq_diffusion.py",
+            "console": "integratedTerminal"
+        },
+        {
+            // Deterministic testing
+            // python test_mega.py checkpoint.model_path=checkpoint/CVQMAE/2026-1-16/21-32-BL/model_checkpoint/3dpw_test
             "name": "Python 调试程序: Test VQDiffusion Deterministic.py",
             "type": "debugpy",
             "request": "launch",
