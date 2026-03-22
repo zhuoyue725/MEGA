@@ -48,5 +48,6 @@ validation_data:
 
 # 可选：从已有 checkpoint 恢复训练
 resume:
-  path: 'checkpoint/UNCONDITIONAL_DIFFUSION/2026-03-22/16-09/model_best_loss'       # 留空表示从头训练
-  optimizer: false
+  # 'checkpoint/UNCONDITIONAL_DIFFUSION/2026-03-22/16-33/model_best_loss'
+  path: 'checkpoint/UNCONDITIONAL_DIFFUSION/2026-03-22/16-33/model_best_loss'       # 留空表示从头训练
+  optimizer: true

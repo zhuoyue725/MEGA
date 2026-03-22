@@ -1,3 +1,4 @@
+import random
 import sys
 import os
 
@@ -195,12 +196,12 @@ class UnconditionalDiffusion_Train(Train):
                 print(f'\t [Step {self.step_count}] checkpoint saved (loss={loss.item():.4f})')
 
             # ---- 每 50 步可视化一次 pred mesh vs real mesh ----
-            if self.step_count % 1000 == 0 and self.f is not None:
+            if self.step_count % 200 == 0 and self.f is not None:
                 with torch.no_grad():
                     self.model.eval()
                     sample_out = self.model.sample(
                         batch_size=indices.shape[0],
-                        filter_ratio=0.2, # 掩码比例，但是0表示从完全掩码
+                        filter_ratio=random.uniform(0.2, 0.8), # 掩码比例，但是0表示从完全掩码
                         temperature=1.0,
                         content_token=indices,
                         device=self.device,
@@ -239,7 +240,7 @@ class UnconditionalDiffusion_Train(Train):
                 if val_step % vis_every == 0 and self.f is not None:
                     sample_out = self.model.sample(
                         batch_size=tokens.shape[0],
-                        filter_ratio=0.2, # torch.empty(1).uniform_(0.3, 0.8).item(),
+                        filter_ratio=random.uniform(0.2, 0.8), # 掩码比例
                         temperature=1.0,
                         content_token=tokens,
                         device=self.device,
@@ -408,3 +409,207 @@ class UnconditionalDiffusion_Train(Train):
         if save is not None:
             plt.savefig(save)
         plt.close()
+
+    def visualize_mask_tokens_text(
+        self,
+        intermediate_tokens: dict,
+        gt_tokens,
+        save_steps,
+        output_path: str = 'demo_out/mask_vis/token_text.png',
+        num_tokens: int = 54,
+        mask_threshold: int = 512,
+    ):
+        """
+        可视化扩散过程各步骤的 Token 值。
+
+        每个格子显示具体的 Token ID：
+          - 背景白色 = 已生成 Token，背景黑色 = Mask
+          - 绿色文字 = 与 GT 一致，红色文字 = 与 GT 不同
+          - 灰色 'M'  = 尚未生成（Mask）
+
+        Parameters
+        ----------
+        intermediate_tokens : dict
+            键为扩散步骤编号，值为该步骤的 token tensor (shape: [1, num_tokens] 或 [num_tokens])。
+        gt_tokens : Tensor
+            Ground-truth token 索引，用于对比正确与否。
+        save_steps : list[int]
+            需要可视化的步骤列表；若对应步骤不存在则取最近邻步骤。
+        output_path : str
+            输出图片路径。
+        num_tokens : int
+            每条序列的 token 数量，默认 54。
+        mask_threshold : int
+            >= mask_threshold 的 token 视为 Mask，默认 512。
+        """
+        sorted_steps = sorted(save_steps)
+        available_keys = sorted(intermediate_tokens.keys())
+
+        # GT tokens 转为 numpy（CPU）
+        if torch.is_tensor(gt_tokens):
+            gt_cpu = gt_tokens.detach().cpu().numpy().flatten()
+        else:
+            gt_cpu = np.array(gt_tokens).flatten()
+
+        # 创建画布
+        fig, ax = plt.subplots(figsize=(24, 0.8 * len(sorted_steps) + 2))
+
+        # 背景矩阵：0=黑(Mask)，1=白(Token)
+        bg_matrix = np.zeros((len(sorted_steps), num_tokens), dtype=np.float32)
+
+        for row_idx, step in enumerate(sorted_steps):
+            closest_key = min(available_keys, key=lambda x: abs(x - step))
+            tokens = intermediate_tokens[closest_key]
+
+            if torch.is_tensor(tokens):
+                tokens = tokens.detach().cpu().numpy().flatten()
+            else:
+                tokens = np.array(tokens).flatten()
+
+            for col_idx, val in enumerate(tokens[:num_tokens]):
+                if val < mask_threshold:
+                    bg_matrix[row_idx, col_idx] = 1.0  # 白色背景
+
+                    # 对比 GT：正确=绿色，错误=红色
+                    is_correct = (col_idx < len(gt_cpu)) and (int(val) == int(gt_cpu[col_idx]))
+                    text_color = 'green' if is_correct else 'red'
+
+                    ax.text(
+                        col_idx, row_idx, str(int(val)),
+                        ha='center', va='center',
+                        fontsize=7, color=text_color, fontweight='bold',
+                    )
+                else:
+                    # Mask 位置
+                    ax.text(
+                        col_idx, row_idx, 'M',
+                        ha='center', va='center',
+                        fontsize=7, color='gray',
+                    )
+
+        # 绘制背景（灰度图，0=黑，1=白；vmax=1.5 让白色不过曝）
+        ax.imshow(
+            bg_matrix, cmap='gray', aspect='auto',
+            interpolation='nearest', vmin=0, vmax=1.5,
+        )
+
+        # 坐标轴装饰
+        ax.set_yticks(np.arange(len(sorted_steps)))
+        ax.set_yticklabels([f'Step {s}' for s in sorted_steps])
+        ax.set_xticks(np.arange(num_tokens))
+        ax.set_xticklabels(np.arange(num_tokens), fontsize=7)
+        ax.set_xlabel('Token Index', fontsize=12)
+        ax.set_ylabel('Diffusion Steps', fontsize=12)
+        ax.set_title(
+            'Token Index Values Over Steps\n(Green: Correct | Red: Incorrect | M: Mask)',
+            fontsize=14, pad=20,
+        )
+
+        # 格线
+        ax.set_xticks(np.arange(-0.5, num_tokens, 1), minor=True)
+        ax.set_yticks(np.arange(-0.5, len(sorted_steps), 1), minor=True)
+        ax.grid(which='minor', color='#333333', linestyle='-', linewidth=1)
+        ax.tick_params(which='minor', size=0)
+
+        # 保存
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        plt.savefig(output_path, bbox_inches='tight', dpi=200)
+        plt.close()
+
+        print(f'Token text visualization saved to: {output_path}')
+
+    def visualize_diffusion_steps(
+        self,
+        gt_tokens,
+        save_steps=None,
+        output_dir=None,
+        temperature: float = 1.0,
+        filter_ratio: float = 0.0,
+        vis_idx: int = 0,
+        batch_idx: int = 0,
+        token_text_path: str = 'demo_out/mask_vis/mask_step_text.png',
+    ):
+        """
+        可视化无条件扩散过程中指定步骤的 mesh_token 结果。
+
+        Args:
+            gt_tokens: Ground-truth token 索引，shape [B, seq_len]，用于对比和作为初始内容 token。
+            save_steps: list of int，要保存的扩散步数，例如 [20, 40, 60, 80]。
+                        若为 None 则默认 [20, 40, 60, 80]。
+            output_dir: 输出目录，若为 None 则使用 self.follow.path_samples_train。
+            temperature: 采样温度，默认 1.0。
+            filter_ratio: 掩码保留比例，0.0 表示从完全掩码开始采样，默认 0.0。
+            vis_idx: batch 内要可视化的样本索引，默认 0。
+            batch_idx: 日志标识用的 batch 编号，默认 0。
+            token_text_path: Token 文字可视化图的保存路径。
+
+        Returns:
+            results: dict，键为 'step_{n}'，值为对应步骤解码的 mesh tensor (cpu)。
+        """
+        if save_steps is None:
+            save_steps = [20, 40, 60, 80]
+        if output_dir is None:
+            output_dir = self.follow.path_samples_train
+
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        device = self.device
+        gt_tokens = gt_tokens.to(device)
+        B = gt_tokens.shape[0]
+
+        with torch.no_grad():
+            self.model.eval()
+
+            # 采样，同时记录中间步骤的 token
+            sample_out = self.model.sample(
+                batch_size=B,
+                filter_ratio=filter_ratio,
+                temperature=temperature,
+                return_logits=False,
+                content_token=gt_tokens,
+                save_steps=save_steps,
+                device=device,
+            )
+
+            final_tokens = sample_out['content_token']
+            intermediate_tokens = sample_out.get('intermediate_tokens', {})
+
+            # Token 文字可视化（与 GT 对比）
+            self.visualize_mask_tokens_text(
+                intermediate_tokens=intermediate_tokens,
+                save_steps=save_steps,
+                gt_tokens=gt_tokens.cpu(),
+                output_path=token_text_path,
+            )
+
+            # 解码每个中间步骤的 mesh
+            results = {}
+            for step in sorted(intermediate_tokens.keys()):
+                tokens_step = intermediate_tokens[step].to(device)
+                # mask token (>=512) 映射为 0，VQVAE codebook 范围是 0-511
+                tokens_step_clipped = torch.clamp(tokens_step, 0, 511)
+                mesh_step = self.vqvae.decode(tokens_step_clipped).cpu()
+                results[f'step_{step}'] = mesh_step
+
+            print(f'Visualizing {len(results)} diffusion steps...')
+
+            # 按步骤数字从大到小排序（大步 = 早期噪声，小步 = 接近最终结果）
+            sorted_keys = sorted(
+                results.keys(),
+                key=lambda x: int(x.split('_')[1]) if x.startswith('step_') else float('inf'),
+                reverse=True,
+            )
+
+            # 收集各步骤 vis_idx 样本的 mesh
+            step_meshes = [results[name][vis_idx] for name in sorted_keys]
+
+            if step_meshes and self.f is not None:
+                step_meshes_stacked = torch.stack(step_meshes)  # [N_steps, V, 3]
+                save_path = output_dir / f'diffusion_steps_bidx{batch_idx}_idx{vis_idx}.png'
+                self.plot_meshes_(step_meshes_stacked, show=False, save=str(save_path))
+                print(f'  Saved mesh comparison: {save_path}')
+
+            self.model.train()
+
+        return results

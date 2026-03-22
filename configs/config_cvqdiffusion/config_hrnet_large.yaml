@@ -73,6 +73,7 @@ test_data:
 # 可选：从已有 checkpoint 恢复训练
 resume:
 # 训练EMDB：checkpoint/CVQDIFFUSION/2026-03-14/19-57_EMDB_EPOCH16/model_checkpoint
+# 预训练后的：checkpoint/UNCONDITIONAL_DIFFUSION/2026-03-22/16-18/model_best_loss
   path: ''           # 留空表示从头开始训练 'checkpoint/CVQDIFFUSION/2026-03-15/22-20/model_best_loss
   optimizer: false   # 是否恢复优化器状态
 

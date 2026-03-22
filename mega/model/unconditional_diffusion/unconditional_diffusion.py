@@ -178,6 +178,7 @@ class UnconditionalDiffusion(nn.Module):
                 temperature=temperature,
                 return_logits=return_logits,
                 save_steps=save_steps,
+                batch_size=batch_size,
             )
         else:
             # Otherwise call standard sample()
