@@ -122,6 +122,23 @@ def get_all_compare_images(base_path=CHECKPOINT_BASE):
     compare_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     return [str(f) for f in compare_files]
 
+def get_all_joints2d_images(base_path=CHECKPOINT_BASE):
+    """
+    获取当前checkpoint文件夹中的所有2D投影可视化图片，按修改时间排序
+    """
+    checkpoint_dir = get_latest_checkpoint_dir(base_path)
+    if not checkpoint_dir:
+        return []
+    
+    reprojection_vis_dir = checkpoint_dir / "reprojection_vis"
+    if not reprojection_vis_dir.exists():
+        return []
+    
+    joints2d_files = list(reprojection_vis_dir.glob("joints2d_gt_comparison*.png"))
+    # 按修改时间排序（最新的在前）
+    joints2d_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return [str(f) for f in joints2d_files]
+
 # 默认图像路径（自动查找最新的）
 LOSS_IMAGE_PATH = find_latest_loss_image() or "/home/zzb/pydata/recons/MEGA/checkpoint/CVQDIFFUSION/2026-03-14/16-21/loss.png"
 REPROJECTION_IMAGE_PATH = find_latest_reprojection_image()
@@ -437,6 +454,26 @@ HTML_TEMPLATE = """
             </div>
         </div>
         
+        <!-- 2D投影可视化 -->
+        <div class="image-container">
+            <h2>📐 2D Joints Projection</h2>
+            {% if has_joints2d %}
+            <div class="image-path" id="joints2dPath" style="background: #f0f4f8; padding: 10px; border-radius: 6px; margin-bottom: 12px; font-family: monospace; font-size: 0.85em; color: #2d3748; word-break: break-all; border-left: 3px solid #667eea;">
+                加载中...
+            </div>
+            <img id="joints2dImage" src="/joints2d_image?index=0&t={{ timestamp }}" alt="2D Joints Projection" />
+            <div class="image-nav">
+                <button class="nav-button" onclick="prevJoints2d()" id="prevJoints2dBtn">◀</button>
+                <div class="image-counter">
+                    <span id="joints2dCounter">1 / {{ joints2d_count }}</span>
+                </div>
+                <button class="nav-button" onclick="nextJoints2d()" id="nextJoints2dBtn">▶</button>
+            </div>
+            {% else %}
+            <div class="not-available">2D投影可视化图像暂不可用</div>
+            {% endif %}
+        </div>
+        
         <div class="controls">
             <button onclick="refreshImages(true)">🔄 立即刷新</button>
             <div class="refresh-interval">
@@ -462,8 +499,10 @@ HTML_TEMPLATE = """
         let currentInterval = 5000; // 默认5秒
         let currentReprojectionIndex = 0;
         let currentCompareIndex = 0;
+        let currentJoints2dIndex = 0;
         let totalReprojectionImages = {{ reprojection_count }};
         let totalCompareImages = {{ compare_count }};
+        let totalJoints2dImages = {{ joints2d_count }};
         
         function refreshImages(resetToLatest = false) {
             const timestamp = new Date().getTime();
@@ -472,6 +511,7 @@ HTML_TEMPLATE = """
             if (resetToLatest) {
                 currentReprojectionIndex = 0;
                 currentCompareIndex = 0;
+                currentJoints2dIndex = 0;
             }
             
             // 刷新Loss图像
@@ -492,10 +532,17 @@ HTML_TEMPLATE = """
                 compareImg.src = '/compare_image?index=' + currentCompareIndex + '&t=' + timestamp;
             }
             
+            // 刷新2D投影图像
+            const joints2dImg = document.getElementById('joints2dImage');
+            if (joints2dImg) {
+                joints2dImg.src = '/joints2d_image?index=' + currentJoints2dIndex + '&t=' + timestamp;
+            }
+            
             // 更新计数器和路径
             if (resetToLatest) {
                 updateReprojectionCounter();
                 updateCompareCounter();
+                updateJoints2dCounter();
             }
             
             refreshCount++;
@@ -517,6 +564,13 @@ HTML_TEMPLATE = """
             updateComparePath();
         }
         
+        function updateJoints2dCounter() {
+            document.getElementById('joints2dCounter').textContent = (currentJoints2dIndex + 1) + ' / ' + totalJoints2dImages;
+            document.getElementById('prevJoints2dBtn').disabled = currentJoints2dIndex === 0;
+            document.getElementById('nextJoints2dBtn').disabled = currentJoints2dIndex === totalJoints2dImages - 1;
+            updateJoints2dPath();
+        }
+        
         function updateReprojectionPath() {
             fetch('/get_image_path?type=reprojection&index=' + currentReprojectionIndex)
                 .then(response => response.json())
@@ -536,6 +590,17 @@ HTML_TEMPLATE = """
                 })
                 .catch(error => {
                     document.getElementById('comparePath').textContent = '无法获取路径';
+                });
+        }
+        
+        function updateJoints2dPath() {
+            fetch('/get_image_path?type=joints2d&index=' + currentJoints2dIndex)
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('joints2dPath').textContent = data.path;
+                })
+                .catch(error => {
+                    document.getElementById('joints2dPath').textContent = '无法获取路径';
                 });
         }
         
@@ -575,6 +640,24 @@ HTML_TEMPLATE = """
             }
         }
         
+        function prevJoints2d() {
+            if (currentJoints2dIndex > 0) {
+                currentJoints2dIndex--;
+                const timestamp = new Date().getTime();
+                document.getElementById('joints2dImage').src = '/joints2d_image?index=' + currentJoints2dIndex + '&t=' + timestamp;
+                updateJoints2dCounter();
+            }
+        }
+        
+        function nextJoints2d() {
+            if (currentJoints2dIndex < totalJoints2dImages - 1) {
+                currentJoints2dIndex++;
+                const timestamp = new Date().getTime();
+                document.getElementById('joints2dImage').src = '/joints2d_image?index=' + currentJoints2dIndex + '&t=' + timestamp;
+                updateJoints2dCounter();
+            }
+        }
+        
         function changeInterval() {
             const select = document.getElementById('interval');
             currentInterval = parseInt(select.value) * 1000;
@@ -596,6 +679,7 @@ HTML_TEMPLATE = """
             refreshImages();
             updateReprojectionCounter();
             updateCompareCounter();
+            updateJoints2dCounter();
         };
     </script>
 </body>
@@ -611,6 +695,7 @@ def index():
     latest_loss = find_latest_loss_image()
     all_reprojection = get_all_reprojection_images()
     all_compare = get_all_compare_images()
+    all_joints2d = get_all_joints2d_images()
     
     return render_template_string(
         HTML_TEMPLATE, 
@@ -619,8 +704,10 @@ def index():
         has_loss=latest_loss is not None,
         has_reprojection=len(all_reprojection) > 0,
         has_compare=len(all_compare) > 0,
+        has_joints2d=len(all_joints2d) > 0,
         reprojection_count=len(all_reprojection),
         compare_count=len(all_compare),
+        joints2d_count=len(all_joints2d),
         training_time=os.path.dirname(latest_loss).split('/')[-2:] if latest_loss else "N/A"
     )
 
@@ -635,6 +722,8 @@ def get_image_path():
         all_images = get_all_reprojection_images()
     elif image_type == 'compare':
         all_images = get_all_compare_images()
+    elif image_type == 'joints2d':
+        all_images = get_all_joints2d_images()
     else:
         return jsonify({'path': 'Unknown type'}), 400
     
@@ -683,6 +772,20 @@ def compare_image():
     
     return "Compare image not found", 404
 
+@app.route('/joints2d_image')
+def joints2d_image():
+    """返回2D投影可视化图像"""
+    from flask import request
+    index = request.args.get('index', 0, type=int)
+    
+    all_joints2d = get_all_joints2d_images()
+    if all_joints2d and 0 <= index < len(all_joints2d):
+        image_path = all_joints2d[index]
+        if os.path.exists(image_path):
+            return send_file(image_path, mimetype='image/png')
+    
+    return "2D Joints image not found", 404
+
 def main():
     global LOSS_IMAGE_PATH, REPROJECTION_IMAGE_PATH, COMPARE_IMAGE_PATH
     
@@ -704,6 +807,7 @@ def main():
     latest_loss = find_latest_loss_image()
     latest_reprojection = find_latest_reprojection_image()
     latest_compare = find_latest_compare_image()
+    latest_joints2d = get_all_joints2d_images()
     
     if latest_loss and os.path.exists(latest_loss):
         print(f"✅ 找到Loss文件: {latest_loss}")
@@ -721,6 +825,12 @@ def main():
         print(f"✅ 找到Compare文件: {latest_compare}")
     else:
         print(f"⚠️  警告: Compare文件不存在")
+    
+    if latest_joints2d:
+        print(f"✅ 找到 {len(latest_joints2d)} 个2D投影可视化文件")
+        print(f"   最新: {latest_joints2d[0]}")
+    else:
+        print(f"⚠️  警告: 2D投影可视化文件不存在")
     
     print(f"🌐 服务地址: http://{args.host}:{args.port}")
     print(f"💻 本地访问: http://localhost:{args.port}")

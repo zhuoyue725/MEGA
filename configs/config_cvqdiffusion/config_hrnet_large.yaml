@@ -7,7 +7,7 @@ train:
   batch: 4          # 大batch size，提升训练稳定性
   lr: 1e-4           # 基础学习率
   device: 'cuda'
-  total_epoch: 200   # 大数据集通常100-200个epoch足够
+  total_epoch: 10000   # 大数据集通常100-200个epoch足够
   workers: 4         # 多进程数据加载，加速训练
   weight_decay: 1e-4 # L2正则化，防止过拟合
   warmup_epoch: 10   # warmup期，让训练更稳定
@@ -38,7 +38,7 @@ model:
   cond_dim: 1024           # cross-attention 条件维度
   cond_len: 49             # 条件序列长度（7×7）
   n_head: 8                # 注意力头数
-  n_layer: 6               # Transformer层数（大数据集可以用更深的模型）
+  n_layer: 12               # Transformer层数（大数据集可以用更深的模型）
   diff_step: 100           # 扩散步数（更多步数=更好质量）
   auxiliary_loss_weight: 5e-4
   adaptive_auxiliary_loss: true
@@ -52,24 +52,28 @@ save_every_n_steps: 5000
 
 # npz 数据集路径
 training_data:
-  file: 'configs/config_cvqdiffusion/emdb_train.txt'  # EMDB完整训练集
+  # file: 'configs/config_cvqdiffusion/emdb_train.txt'  # EMDB完整训练集
   # file: 'configs/config_cvqdiffusion/bedlam_train.txt'
   # file: 'configs/config_cvqdiffusion/bedlam_train_sub.txt'
+  file: 'configs/config_cvqdiffusion/coco_train_100.txt'
   
 validation_data:
   # file: 'configs/config_cvqdiffusion/emdb_validation.txt'  # EMDB验证集
-  file: 'configs/config_cvqdiffusion/emdb_train_100.txt'  
+  # file: 'configs/config_cvqdiffusion/emdb_train_100.txt'  
+  file: 'configs/config_cvqdiffusion/coco_train_100.txt'
   # file: 'configs/config_cvqdiffusion/bedlam_train.txt' 
 
 test_data:
-  file: 'configs/config_cvqdiffusion/emdb_train_100.txt' 
+  # file: 'configs/config_cvqdiffusion/emdb_train_100.txt' 
+  file: 'configs/config_cvqdiffusion/coco_train_100.txt'
+  # file: 'configs/config_cvqdiffusion/coco_train.txt'
   # file: 'configs/config_cvqdiffusion/emdb_train.txt' 
   # file: 'configs/config_cvqdiffusion/bedlam_train.txt'
 
 # 可选：从已有 checkpoint 恢复训练
 resume:
 # 训练EMDB：checkpoint/CVQDIFFUSION/2026-03-14/19-57_EMDB_EPOCH16/model_checkpoint
-  path: 'checkpoint/CVQDIFFUSION/2026-03-14/19-57_EMDB_EPOCH16/model_checkpoint'           # 留空表示从头开始训练 'checkpoint/CVQDIFFUSION/2026-03-15/22-20/model_best_loss
+  path: ''           # 留空表示从头开始训练 'checkpoint/CVQDIFFUSION/2026-03-15/22-20/model_best_loss
   optimizer: false   # 是否恢复优化器状态
 
 # ------------------------------------------------------------------ #

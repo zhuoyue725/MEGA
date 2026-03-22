@@ -20,7 +20,7 @@ from mega.base import Train
 from mega.model.cvqdiffusion import CVQDiffusion
 from mega.data import MixedDataset
 from mega.utils.eval import pa_mpjpe, mpjpe, v2v
-from mega.utils.loss import reprojection_loss, reprojection_loss_vis, reprojection_loss_conf
+from mega.utils.loss import reprojection_loss, reprojection_loss_conf24, reprojection_loss_conf24_vis, reprojection_loss_conf_vis, reprojection_loss_vis, reprojection_loss_conf, visualize_reprojection_2d
 import pandas as pd
 from matplotlib.gridspec import GridSpec
 from ...utils.img_renderer import visualize_reconstruction_pyrender, PyRender_Renderer
@@ -49,8 +49,10 @@ class FollowDiff:
         self.path.mkdir(parents=True, exist_ok=True)
         (self.path / 'samples').mkdir(exist_ok=True)
         (self.path / 'samples_train').mkdir(exist_ok=True)
+        (self.path / 'reprojection_vis').mkdir(exist_ok=True)
         self.path_samples       = self.path / 'samples'
         self.path_samples_train = self.path / 'samples_train'
+        self.path_reprojection_vis = self.path / 'reprojection_vis'
 
         self.best_loss = 1e8
         self.train_losses: list = []
@@ -312,29 +314,19 @@ class CVQDiffusion_Train(Train):
             pred_mesh = (rotmat.cpu() @ mesh_canonical.transpose(2, 1)).transpose(2, 1)  # [B, V, 3]
             
             # 根据数据集类型计算重投影损失
-            is_3dpw = data["is_3dpw"] == True
-            not_3dpw = data["is_3dpw"] == False
-
             reproj_loss = 0
-            if is_3dpw.any():  # 3DPW/EMDB/BEDLAM 24个关节
-                reproj_loss += reprojection_loss_vis(
-                    data["j2d"][is_3dpw].to(torch.float32),
-                    pred_mesh[is_3dpw],
-                    pred_cam[is_3dpw].cpu(),
-                    self.joints_reg_smpl,
-                    # visualize=True,
-                    # vis_path='./demo_out/joints2d_bl_gt_sub',
-                    # vis_counter=f"epoch{epoch}_{self.step_count}",
-                    # raw_img=data["raw_img"][is_3dpw],
-                )
-            if not_3dpw.any():
-                reproj_loss += reprojection_loss_conf(
-                    data["j2d"][not_3dpw],
-                    pred_mesh[not_3dpw],
-                    pred_cam[not_3dpw].cpu(),
-                    self.joints_reg,
-                )
-            
+
+            reproj_loss += reprojection_loss_conf24_vis(
+                data["j2d"][:].to(torch.float32),
+                pred_mesh[:],
+                pred_cam[:].cpu(),
+                self.joints_reg_smpl,
+                vis_path=str(self.follow.path_reprojection_vis),
+                epoch=epoch,
+                step_count=self.step_count,
+                raw_img=data["raw_img"][:],
+            )
+
             # 计算评估指标
             gt_mesh = data['mesh'].cpu()
             if self.joints_reg is not None:
@@ -347,7 +339,7 @@ class CVQDiffusion_Train(Train):
                 pampjpe_err = 0.0
             
             # 总损失
-            loss = diff_loss + rot_loss + reproj_loss
+            loss = diff_loss + rot_loss  + reproj_loss
 
             loss.backward()
             nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
@@ -380,7 +372,7 @@ class CVQDiffusion_Train(Train):
                 print(f'\t [Step {self.step_count}] checkpoint saved (loss={loss.item():.4f})')
 
             # ---- 每 50 步绘制一次重建网格（参照 CVQMAE_Train）----
-            if self.step_count % 1000 == 0 and self.f is not None:
+            if self.step_count % 5 == 0 and self.f is not None:
                 with torch.no_grad():
                     # 用当前 img 采样生成 token，解码为网格
                     sample_out  = self.model.sample(
@@ -454,26 +446,16 @@ class CVQDiffusion_Train(Train):
                 mesh_canonical = self.vqvae.decode(tokens).cpu()
                 pred_mesh = (rotmat.cpu() @ mesh_canonical.transpose(2, 1)).transpose(2, 1)
                 
-                is_3dpw = data["is_3dpw"] == True
-                not_3dpw = data["is_3dpw"] == False
-                reproj_loss = 0
-                if is_3dpw.any():
-                    reproj_loss += reprojection_loss_vis(
-                        data["j2d"][is_3dpw].to(torch.float32),
-                        pred_mesh[is_3dpw],
-                        pred_cam[is_3dpw].cpu(),
-                        self.joints_reg_smpl,
-                        # visualize=True,
-                        # vis_path='./demo_out/joints2d',
-                        # vis_counter=f"epoch{epoch}_eval_{self.step_count}"
-                    )
-                if not_3dpw.any():
-                    reproj_loss += reprojection_loss_conf(
-                        data["j2d"][not_3dpw],
-                        pred_mesh[not_3dpw],
-                        pred_cam[not_3dpw].cpu(),
-                        self.joints_reg,
-                    )
+                reproj_loss = reprojection_loss_conf24_vis(
+                    data["j2d"][:].to(torch.float32),
+                    pred_mesh[:],
+                    pred_cam[:].cpu(),
+                    self.joints_reg_smpl,
+                    vis_path=str(self.follow.path_reprojection_vis),
+                    epoch=epoch,
+                    step_count=self.step_count,
+                    raw_img=data["raw_img"][:],
+                )
                 
                 # 计算评估指标
                 gt_mesh = data['mesh'].cpu()

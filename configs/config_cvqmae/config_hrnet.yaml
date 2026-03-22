@@ -29,9 +29,9 @@ modelconv:
 model:
   seq_length: 54
   emb_dim: 1024
-  encoder_layer: 12
+  encoder_layer: 12 # 可见Token的Transformer
   encoder_head: 4
-  decoder_layer: 4
+  decoder_layer: 4 # 可见Token+图像特征的Transformer
   decoder_head: 4
   num_embeddings: 512
   dim_tokens: 512

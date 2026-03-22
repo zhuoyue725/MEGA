@@ -213,6 +213,9 @@ class DatasetHMRSquare(Dataset):
             img_path = f"datasets/{self.dataset_file[:-4]}/{imgname}"
         else:
             img_path = imgname
+
+        if "coco" in self.dataset_file[:-4]:
+            img_path = f"datasets/coco_train/{imgname}"
         if "BEDLAM" in self.dataset_file[:-4]:
             is_3dpw = True
             is_bedlam = True
@@ -239,13 +242,7 @@ class DatasetHMRSquare(Dataset):
         resnet_img = self.normalize_resnet(img)
 
         j2d = self.j2d[index][:24].copy()  # 创建副本，避免修改原始数据
-        if not is_3dpw:
-            j2d = j2d[J24_TO_J17]
-            j2d = self.j2d_processing(j2d, center, sc * scale, rot, flip)
-            j2d_full = np.zeros((24, 3))
-            j2d_full[:17] = j2d
-        else:
-            j2d_full = self.j2d_processing(j2d, center, sc * scale, rot, flip)
+        j2d_full = self.j2d_processing(j2d, center, sc * scale, rot, flip)
 
         betas = self.betas[index][:10]
         gender = str(self.gender[index])
@@ -287,7 +284,7 @@ class DatasetHMRSquare(Dataset):
         item["img"] = resnet_img
         item["imgname"] = img_path
         item["raw_img"] = img
-        item["j2d"] = j2d
+        item["j2d"] = j2d_full
         item["gender"] = gender
         item["mesh"] = torch.from_numpy(global_mesh[0]).float()
         item["local_mesh"] = torch.from_numpy(local_mesh[0]).float()

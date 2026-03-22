@@ -134,7 +134,7 @@ def main(cfg: DictConfig):
         joints_regressor_smpl=J_regressor_24,
     )
 
-    # trainer.load_rotcam_weights('checkpoint/CVQMAE/rotcam_weights.pth')
+    trainer.load_rotcam_weights('checkpoint/CVQMAE/rotcam_weights.pth')
     # ---- 可选：从 checkpoint 恢复 ----
     resume_path = cfg.get('resume', {}).get('path', '')
     if resume_path:
