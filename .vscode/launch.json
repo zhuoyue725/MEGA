@@ -47,6 +47,14 @@
             "console": "integratedTerminal"
         },
         {
+            // pre-training on motion capture data
+            "name": "Python 调试程序: Self-supervised Pretrain MaskDiff-HMR.py",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/pretrain_vq_diffusion.py",
+            "console": "integratedTerminal"
+        },
+        {
             // Training with images
             "name": "Python 调试程序: Train MEGA on images",
             "type": "debugpy",
