@@ -368,10 +368,11 @@ class CVQMAE(torch.nn.Module):
             sorted_confidence, _ = torch.sort(confidence, axis=-1)
             cut_off = sorted_confidence[:, mask_len.long() - 1 : mask_len.long()]
             masking = confidence <= cut_off
-            patches = torch.where(masking, 0, sampled_ids)
+            patches = torch.where(masking, 0, sampled_ids) # 掩码替换为0
             mask = torch.where(masking, 0, 1)
             if return_list:
-                list_indices.append(patches)
+                list_indices.append(sampled_ids) # 某个批次的
+                # list_indices.append(patches)
 
         if return_list:
             return patches, predicted_rot, predicted_cam, list_indices

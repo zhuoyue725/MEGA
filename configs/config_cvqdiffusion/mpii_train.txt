@@ -1,1 +1,1 @@
-data/real_training_labels/mpi_inf_3dhp_train.npz
+datasets/mpii_train.npz

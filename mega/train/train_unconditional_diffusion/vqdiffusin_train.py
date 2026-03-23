@@ -564,7 +564,7 @@ class UnconditionalDiffusion_Train(Train):
             # 采样，同时记录中间步骤的 token
             sample_out = self.model.sample(
                 batch_size=B,
-                filter_ratio=filter_ratio,
+                filter_ratio=0.1,
                 temperature=temperature,
                 return_logits=False,
                 content_token=gt_tokens,

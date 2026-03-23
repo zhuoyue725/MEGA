@@ -978,3 +978,247 @@ class CVQMAE_Train(Train):
         print(
             f"model: ok  | optimizer:{optimizer}  |  loss: {loss}  |  epoch: {self.load_epoch}]"
         )
+
+    def visualize_mask_tokens_text(
+            self,
+            list_indices: list,
+            gt_tokens,
+            output_path: str = 'demo_out/mask_vis/token_text.png',
+            num_tokens: int = 54,
+            mask_threshold: int = 512,
+        ):
+        """
+        可视化扩散过程各步骤的 Token 值。
+
+        Parameters
+        ----------
+        list_indices : list
+            扩散过程中每一步的 token tensor 列表，每个元素 shape 为 [1, num_tokens]
+        gt_tokens : Tensor
+            Ground-truth token 索引，用于对比正确与否
+        output_path : str
+            输出图片路径
+        num_tokens : int
+            每条序列的 token 数量，默认 54
+        mask_threshold : int
+            >= mask_threshold 的 token 视为 Mask，默认 512
+        """
+        import os
+        import torch
+        import numpy as np
+        import matplotlib.pyplot as plt
+
+        # GT tokens 转为 numpy（CPU）
+        if torch.is_tensor(gt_tokens):
+            gt_cpu = gt_tokens.detach().cpu().numpy().flatten()
+        else:
+            gt_cpu = np.array(gt_tokens).flatten()
+
+        num_steps = len(list_indices)
+
+        # 创建画布，高度自适应步数
+        fig, ax = plt.subplots(figsize=(24, 0.8 * num_steps + 2))
+
+        # 背景矩阵：0=黑(Mask)，1=白(Token)
+        bg_matrix = np.zeros((num_steps, num_tokens), dtype=np.float32)
+
+        for step_idx, tokens in enumerate(list_indices):
+            # 处理 list_indices 中的当前步 tensor (预期 shape: [1, 54])
+            if torch.is_tensor(tokens):
+                tokens_cpu = tokens.detach().cpu().numpy().flatten()
+            else:
+                tokens_cpu = np.array(tokens).flatten()
+
+            for col_idx, val in enumerate(tokens_cpu[:num_tokens]):
+                if val < mask_threshold:
+                    bg_matrix[step_idx, col_idx] = 1.0  # 白色背景
+
+                    # 对比 GT：正确=绿色，错误=红色
+                    is_correct = (col_idx < len(gt_cpu)) and (int(val) == int(gt_cpu[col_idx]))
+                    text_color = 'green' if is_correct else 'red'
+
+                    ax.text(
+                        col_idx, step_idx, str(int(val)),
+                        ha='center', va='center',
+                        fontsize=7, color=text_color, fontweight='bold',
+                    )
+                else:
+                    # Mask 位置
+                    ax.text(
+                        col_idx, step_idx, 'M',
+                        ha='center', va='center',
+                        fontsize=7, color='gray',
+                    )
+
+        # 绘制背景（灰度图，0=黑，1=白；vmax=1.5 让白色不过曝）
+        ax.imshow(
+            bg_matrix, cmap='gray', aspect='auto',
+            interpolation='nearest', vmin=0, vmax=1.5,
+        )
+
+        # 坐标轴装饰
+        ax.set_yticks(np.arange(num_steps))
+        # 步骤标号从 0 到 num_steps-1
+        ax.set_yticklabels([f'Step {s}' for s in range(num_steps)])
+        ax.set_xticks(np.arange(num_tokens))
+        ax.set_xticklabels(np.arange(num_tokens), fontsize=7)
+        ax.set_xlabel('Token Index', fontsize=12)
+        ax.set_ylabel('Diffusion Steps', fontsize=12)
+        ax.set_title(
+            'Token Denoising Process Over Steps\n(Green: Correct | Red: Incorrect | M: Mask)',
+            fontsize=14, pad=20,
+        )
+
+        # 格线
+        ax.set_xticks(np.arange(-0.5, num_tokens, 1), minor=True)
+        ax.set_yticks(np.arange(-0.5, num_steps, 1), minor=True)
+        ax.grid(which='minor', color='#333333', linestyle='-', linewidth=1)
+        ax.tick_params(which='minor', size=0)
+
+        # 保存
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        plt.savefig(output_path, bbox_inches='tight', dpi=200)
+        plt.close()
+
+        print(f'已保存 Token text visualization saved to: {output_path}')
+
+    def visualize_diffusion_steps(self, steps=50, temp=1.0, output_dir=None):
+            """
+            遍历验证集，可视化所有样本的 Token 去噪过程。
+            
+            Args:
+                steps: 扩散生成步数
+                temp: 采样温度
+                output_dir: 基础输出目录（如果不指定，默认使用 follow 路径）
+            """
+            import os
+            from tqdm import tqdm
+            import torch
+
+            self.model.eval()
+            
+            # 确保输出目录存在
+            token_base_path = self.follow.path_token
+            os.makedirs(token_base_path, exist_ok=True)
+
+            with torch.no_grad():
+                count = 0
+                # 不再设置 max_samples，跑完验证集所有数据
+                for data in tqdm(iter(self.validation_loader), desc="Visualizing Tokens"):
+                    count += 1
+                    
+                    # 1. 获取 Ground Truth Token 索引
+                    mesh = data["local_mesh"]
+                    gt_indices = self.vqvae.get_codebook_indices(
+                        mesh.to(self.device)
+                    ) # [B, 54]
+                    
+                    # 取 Batch 中的第一个样本
+                    gt_tokens_single = gt_indices[0] 
+
+                    # 2. 准备图像输入特征 (Batch=1)
+                    img_features = data["img"][:1].to(self.device)
+
+                    # 3. 生成模型预测，并捕获每一步的 list_indices
+                    if self.vit_backbone:
+                        # 针对 ViT backbone 可能需要的 crop 处理
+                        mesh_indices, pred_rot, pred_cam, list_indices = self.model.generate(
+                            img_features[:, :, :, 32:-32], nb_steps=steps, gen_temp=temp, return_list=True
+                        )
+                    else:
+                        mesh_indices, pred_rot, pred_cam, list_indices = self.model.generate(
+                            img_features, nb_steps=steps, gen_temp=temp, return_list=True
+                        )
+                    
+                    # 4. 构造你指定的保存路径
+                    # mask_save_path = f"{token_base_path}/{count}_stochastic_token_idx={count}_t{temp}.png"
+
+                    # # 5. 调用可视化方法绘制 Token 矩阵
+                    # self.visualize_mask_tokens_text(
+                    #     list_indices=list_indices,
+                    #     gt_tokens=gt_tokens_single, 
+                    #     output_path=mask_save_path,
+                    #     num_tokens=54,
+                    #     mask_threshold=512 
+                    # )
+                    
+                    mask_save_path = f"{token_base_path}/corrent_{count}_stochastic_token_t{temp}.png"
+                    self.visualize_mask_steps_Correct(
+                        intermediate_tokens=list_indices,
+                        gt_tokens=gt_tokens_single, 
+                        output_path=mask_save_path,
+                    )
+
+            print(f"All validation samples processed. Visualizations saved in: {token_base_path}")
+
+
+    def visualize_mask_steps_Correct(self, intermediate_tokens, gt_tokens, output_path='demo_out/mask_vis/correct_step.png'):
+            """
+            可视化 Token 生成的相似度（黑白灰度版）。
+            intermediate_tokens: 列表，按顺序存放每一步的 token。
+            y轴：从下到上为列表顺序 (Step 0 在最底部)
+            """
+            gt_tokens = gt_tokens.to(self.device)
+            MASK_THRESHOLD = 512
+            
+            with torch.no_grad():
+                gt_embeddings = self.vqvae.get_embeddings(torch.clamp(gt_tokens, 0, MASK_THRESHOLD - 1))
+            
+            plot_rows = []
+            
+            # 极简逻辑：直接遍历列表，有多长就画多少步
+            for token_tensor in intermediate_tokens:
+                if not isinstance(token_tensor, torch.Tensor):
+                    token_tensor = torch.tensor(token_tensor, dtype=torch.long)
+                    
+                tokens_cpu = token_tensor.detach().cpu().numpy().flatten()
+                is_not_mask = tokens_cpu < MASK_THRESHOLD
+                
+                safe_tokens = torch.clamp(token_tensor.to(self.device), 0, MASK_THRESHOLD - 1)
+                
+                with torch.no_grad():
+                    pred_embeddings = self.vqvae.get_embeddings(safe_tokens)
+                    cos_sim = torch.nn.functional.cosine_similarity(pred_embeddings, gt_embeddings, dim=2)
+                    cos_sim_np = cos_sim.squeeze(0).cpu().numpy()
+                    
+                similarity_scores = 0.6 + (cos_sim_np * 0.4) 
+                row_display_values = np.zeros(len(tokens_cpu), dtype=np.float32)
+                row_display_values[is_not_mask] = similarity_scores[is_not_mask]
+                
+                plot_rows.append(row_display_values)
+
+            plot_matrix = np.vstack(plot_rows)
+            num_steps = len(intermediate_tokens) # 获取总步数
+            
+            # --- 绘图逻辑 ---
+            # 高度自适应列表长度
+            fig, ax = plt.subplots(figsize=(15, 0.6 * num_steps + 1.5))
+            
+            # 关键：origin='lower' 保证列表第一个元素 (Step 0) 在最底下
+            im = ax.imshow(plot_matrix, cmap='gray', aspect='auto', interpolation='nearest', 
+                        vmin=0, vmax=1) # , origin='lower'
+            
+            # 装饰
+            ax.set_yticks(np.arange(num_steps))
+            ax.set_yticklabels([f"Step {s}" for s in range(num_steps)]) # 自动生成 Step 0, 1, 2...
+            
+            ax.set_xticks(np.arange(0, 55, 5))
+            ax.set_xlabel("Token Index", fontsize=10)
+            ax.set_ylabel("Diffusion Steps (0 at bottom)", fontsize=10)
+            ax.set_title("Token Semantic Similarity (Black: Mask | White: Matched)", fontsize=12, pad=15)
+            
+            cbar = plt.colorbar(im, ax=ax, pad=0.02)
+            cbar.set_ticks([0, 0.2, 1.0])
+            cbar.set_ticklabels(['Mask', 'Low Sim', 'High Sim'])
+
+            ax.set_xticks(np.arange(-0.5, 54, 1), minor=True)
+            ax.set_yticks(np.arange(-0.5, num_steps, 1), minor=True)
+            ax.grid(which='minor', color='red', linestyle='-', linewidth=0.5, alpha=0.2)
+            ax.tick_params(which='minor', size=0)
+
+            import os
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            plt.savefig(output_path, bbox_inches='tight', dpi=300, facecolor='white')
+            plt.close()
+            
+            print(f"Grayscale visualization saved to: {output_path}")

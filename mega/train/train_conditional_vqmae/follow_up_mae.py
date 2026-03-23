@@ -78,6 +78,8 @@ class Follow:
         path_sample.mkdir(exist_ok=True)
         path_sample_train = path_time / "samples_train"
         self.path_samples_train = path_sample_train
+        path_sample = path_time / "token"
+        self.path_token = path_sample
         path_sample_train.mkdir(exist_ok=True)
 
     def find_best_model(self, loss_validation):

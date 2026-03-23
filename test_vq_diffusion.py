@@ -160,7 +160,8 @@ def main(cfg: DictConfig):
     # V2V: 21.20  MPJPE: 19.06  PA-MPJPE: 8.76  (mm)
     # trainer.eval_stochastic(sample_size=sample_size, temperature=1.0, visualize=True, vis_idx=2) # 采样1.0，设置其他值结果不行
     # diffusion_steps = list(range(99, -1, -5))
-    diffusion_steps = [99, 79, 59, 39, 19, 9,8,7,6,5,4,3,2,1,0]
+    # diffusion_steps = [99, 79, 59, 39, 19, 9,8,7,6,5,4,3,2,1,0]
+    diffusion_steps = [99, 79, 59, 39, 0]
     trainer.eval_stochastic_diffusion_step(diffusion_steps=diffusion_steps, temperature=1.0, vis_idx=1) # 99开始 0结束
 
 if __name__ == '__main__':

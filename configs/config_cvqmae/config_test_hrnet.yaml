@@ -17,7 +17,7 @@ vqvaemesh:
   
 
 modelconv:
-  batch: 5
+  batch: 4
   connection_folder: body_models/ConnectionMatrices/
   initial_connection_fn: body_models/ConnectionMatrices/_pool0.npy
   connection_layer_lst: ["pool0", "pool1", "pool2","pool3", "pool4", "pool5", "pool6","unpool6", "unpool5","unpool4","unpool3","unpool2","unpool1", "unpool0"]

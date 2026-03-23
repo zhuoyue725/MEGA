@@ -316,17 +316,23 @@ class CVQDiffusion_Train(Train):
             # 根据数据集类型计算重投影损失
             reproj_loss = 0
 
-            reproj_loss += reprojection_loss_conf24_vis(
+            # reproj_loss += reprojection_loss_conf24_vis(
+            #     data["j2d"][:].to(torch.float32),
+            #     pred_mesh[:],
+            #     pred_cam[:].cpu(),
+            #     self.joints_reg_smpl,
+            #     vis_path=str(self.follow.path_reprojection_vis),
+            #     epoch=epoch,
+            #     step_count=self.step_count,
+            #     raw_img=data["raw_img"][:],
+            # )
+
+            reproj_loss += reprojection_loss_conf24(
                 data["j2d"][:].to(torch.float32),
                 pred_mesh[:],
                 pred_cam[:].cpu(),
                 self.joints_reg_smpl,
-                vis_path=str(self.follow.path_reprojection_vis),
-                epoch=epoch,
-                step_count=self.step_count,
-                raw_img=data["raw_img"][:],
             )
-
             # 计算评估指标
             gt_mesh = data['mesh'].cpu()
             if self.joints_reg is not None:
@@ -372,7 +378,7 @@ class CVQDiffusion_Train(Train):
                 print(f'\t [Step {self.step_count}] checkpoint saved (loss={loss.item():.4f})')
 
             # ---- 每 50 步绘制一次重建网格（参照 CVQMAE_Train）----
-            if self.step_count % 5 == 0 and self.f is not None:
+            if self.step_count % 50 == 0 and self.f is not None:
                 with torch.no_grad():
                     # 用当前 img 采样生成 token，解码为网格
                     sample_out  = self.model.sample(
@@ -446,17 +452,22 @@ class CVQDiffusion_Train(Train):
                 mesh_canonical = self.vqvae.decode(tokens).cpu()
                 pred_mesh = (rotmat.cpu() @ mesh_canonical.transpose(2, 1)).transpose(2, 1)
                 
-                reproj_loss = reprojection_loss_conf24_vis(
+                # reproj_loss = reprojection_loss_conf24_vis(
+                #     data["j2d"][:].to(torch.float32),
+                #     pred_mesh[:],
+                #     pred_cam[:].cpu(),
+                #     self.joints_reg_smpl,
+                #     vis_path=str(self.follow.path_reprojection_vis),
+                #     epoch=epoch,
+                #     step_count=self.step_count,
+                #     raw_img=data["raw_img"][:],
+                # )
+                reproj_loss = reprojection_loss_conf24(
                     data["j2d"][:].to(torch.float32),
                     pred_mesh[:],
                     pred_cam[:].cpu(),
                     self.joints_reg_smpl,
-                    vis_path=str(self.follow.path_reprojection_vis),
-                    epoch=epoch,
-                    step_count=self.step_count,
-                    raw_img=data["raw_img"][:],
                 )
-                
                 # 计算评估指标
                 gt_mesh = data['mesh'].cpu()
                 if self.joints_reg is not None:
@@ -904,6 +915,90 @@ class CVQDiffusion_Train(Train):
         if unexpected_keys:
             print(f'  ⚠ Unexpected keys (ignored): {unexpected_keys}')
 
+    def load_from_pretrain(self, path: str = ''):
+        """
+        从预训练的无条件扩散模型 (UnconditionalDiffusion) 加载权重到当前
+        条件扩散模型 (CVQDiffusion)。
+        
+        两个模型的网络结构不完全相同：
+          - 无条件模型 Transformer Block 中只有自注意力 `.attn.`
+          - 条件模型 Transformer Block 中有自注意力 `.attn1.` 和交叉注意力 `.attn2.`
+        
+        因此在加载时，需要将无条件模型中的 `.attn.` 重命名为 `.attn1.`，
+        条件模型中的 `.attn2.` 以及其他新增层将保持随机初始化。
+        
+        Args:
+            path: 预训练无条件扩散模型的 checkpoint 路径
+        """
+        print(f'LOAD FROM PRETRAIN (unconditional -> conditional) [')
+        print(f'  path: {path}')
+        
+        # 1. 加载预训练的无条件模型权重
+        checkpoint = torch.load(path, map_location='cpu')
+        
+        # 支持两种 checkpoint 格式：
+        #   - FollowDiff 保存的格式：{'model': state_dict, 'optimizer': ..., 'epoch': ...}
+        #   - 直接的 state_dict
+        if 'model' in checkpoint:
+            pretrained_dict = checkpoint['model']
+            epoch = checkpoint.get('epoch', 'N/A')
+            loss  = checkpoint.get('loss', 'N/A')
+            print(f'  source epoch: {epoch}  |  source loss: {loss}')
+        elif 'state_dict' in checkpoint:
+            pretrained_dict = checkpoint['state_dict']
+        else:
+            pretrained_dict = checkpoint
+        
+        # 2. 获取当前条件模型的 state_dict
+        conditional_dict = self.model.state_dict()
+        
+        # 3. 遍历预训练权重，进行 key 重映射
+        new_state_dict = {}
+        skipped = []
+        
+        for key, value in pretrained_dict.items():
+            # 无条件模型的 key 以 'diffusion.' 开头（UnconditionalDiffusion.diffusion）
+            # 条件模型的 key 也以 'diffusion.' 开头（CVQDiffusion.diffusion）
+            # 因此顶层前缀无需修改。
+            
+            # 关键映射：Block 中的 `.attn.` -> `.attn1.`
+            if '.attn.' in key:
+                new_key = key.replace('.attn.', '.attn1.')
+            else:
+                new_key = key
+            
+            # 确保 key 在条件模型中存在且 shape 匹配
+            if new_key in conditional_dict and conditional_dict[new_key].shape == value.shape:
+                new_state_dict[new_key] = value
+            else:
+                skipped.append((key, new_key,
+                                value.shape,
+                                conditional_dict[new_key].shape if new_key in conditional_dict else 'NOT FOUND'))
+        
+        # 4. 用映射好的权重更新条件模型（strict=False 保留随机初始化的新层）
+        missing_keys, unexpected_keys = self.model.load_state_dict(new_state_dict, strict=False)
+        
+        # 5. 打印加载报告
+        print(f']')
+        print(f'======== 预训练权重加载报告 ========')
+        print(f'  预训练权重总数:   {len(pretrained_dict)}')
+        print(f'  成功加载层数:     {len(new_state_dict)}')
+        print(f'  跳过 (shape不匹配或不存在):  {len(skipped)}')
+        for orig_k, new_k, src_shape, tgt_shape in skipped:
+            print(f'    skip  {orig_k} -> {new_k}  src={src_shape}  tgt={tgt_shape}')
+        
+        print(f'  随机初始化的缺失层 (共 {len(missing_keys)} 个):')
+        for k in missing_keys:
+            # attn2 / ln1_1 是条件模型新增的交叉注意力层，缺失是正常的
+            tag = '' if ('attn2' in k or 'ln1_1' in k or 'condition' in k or 'cond' in k) else '  [警告] 意料之外的缺失'
+            print(f'    {k}{tag}')
+        
+        if unexpected_keys:
+            print(f'  多余的键 (未使用，共 {len(unexpected_keys)} 个):')
+            for k in unexpected_keys:
+                print(f'    {k}')
+        print(f'====================================')
+
     def load_rotcam_weights(self, path: str = 'checkpoint/CVQMAE/rotcam_weights.pth'):
         """
         加载预训练的旋转和相机预测器权重
@@ -1300,90 +1395,73 @@ class CVQDiffusion_Train(Train):
             return results
 
     def visualize_mask_steps_Correct(self, intermediate_tokens, gt_tokens, save_steps, output_path='demo_out/mask_vis/correct_step.png'):
-        """
-        可视化 Token 生成的相似度（黑白灰度版）。
-        黑色 (0.0) = Mask
-        灰色 -> 白色 (0.2 -> 1.0) = 相似度从低到高
-        """
-        # 1. 准备 GT Embedding (处理设备)
-        gt_tokens = gt_tokens.to(self.device)
-        MASK_THRESHOLD = 512
-        
-        with torch.no_grad():
-            # 安全 Clamp，防止 GT 越界导致 CUDA Error
-            gt_embeddings = self.vqvae.get_embeddings(torch.clamp(gt_tokens, 0, MASK_THRESHOLD - 1))
-        
-        sorted_steps = sorted(save_steps)
-        plot_rows = []
-        available_keys = sorted(intermediate_tokens.keys())
-        
-        for step in sorted_steps:
-            closest_key = min(available_keys, key=lambda x: abs(x - step))
-            token_tensor = intermediate_tokens[closest_key]
-            
-            if not isinstance(token_tensor, torch.Tensor):
-                token_tensor = torch.tensor(token_tensor, dtype=torch.long)
-                
-            # 记录 Mask 位置 (CPU)
-            tokens_cpu = token_tensor.detach().cpu().numpy().flatten()
-            is_not_mask = tokens_cpu < MASK_THRESHOLD
-            
-            # 2. 安全提取 Embedding (处理 CUDA 越界)
-            safe_tokens = torch.clamp(token_tensor.to(self.device), 0, MASK_THRESHOLD - 1)
+            # 1. 准备数据 (保持升序排列)
+            gt_tokens = gt_tokens.to(self.device)
+            MASK_THRESHOLD = 512
             
             with torch.no_grad():
-                pred_embeddings = self.vqvae.get_embeddings(safe_tokens)
-                # 计算余弦相似度 [-1, 1]
-                cos_sim = torch.nn.functional.cosine_similarity(pred_embeddings, gt_embeddings, dim=2)
-                cos_sim_np = cos_sim.squeeze(0).cpu().numpy()
+                gt_embeddings = self.vqvae.get_embeddings(torch.clamp(gt_tokens, 0, MASK_THRESHOLD - 1))
+            
+            sorted_steps = sorted(save_steps) # 例如 [0, 1, 2, 3, 4]
+            plot_rows = []
+            available_keys = sorted(intermediate_tokens.keys())
+            
+            for step in sorted_steps:
+                closest_key = min(available_keys, key=lambda x: abs(x - step))
+                token_tensor = intermediate_tokens[closest_key]
                 
-            # 3. 灰度映射逻辑
-            # 我们将相似度 [-1, 1] 映射到 [0.2, 1.0] 灰度区间
-            # 这样即使是最不相似的 Token (0.2) 也会比 Mask (0.0) 亮一点点
-            similarity_scores = 0.6 + (cos_sim_np * 0.4) 
-            
-            # 初始化这一行，默认全黑 (0.0)
-            row_display_values = np.zeros(len(tokens_cpu), dtype=np.float32)
-            
-            # 只在非 Mask 位置填充灰度值
-            row_display_values[is_not_mask] = similarity_scores[is_not_mask]
-            
-            plot_rows.append(row_display_values)
+                if not isinstance(token_tensor, torch.Tensor):
+                    token_tensor = torch.tensor(token_tensor, dtype=torch.long)
+                    
+                tokens_cpu = token_tensor.detach().cpu().numpy().flatten()
+                is_not_mask = tokens_cpu < MASK_THRESHOLD
+                safe_tokens = torch.clamp(token_tensor.to(self.device), 0, MASK_THRESHOLD - 1)
+                
+                with torch.no_grad():
+                    pred_embeddings = self.vqvae.get_embeddings(safe_tokens)
+                    cos_sim = torch.nn.functional.cosine_similarity(pred_embeddings, gt_embeddings, dim=2)
+                    cos_sim_np = cos_sim.squeeze(0).cpu().numpy()
+                    
+                similarity_scores = 0.6 + (cos_sim_np * 0.4) 
+                row_display_values = np.zeros(len(tokens_cpu), dtype=np.float32)
+                row_display_values[is_not_mask] = similarity_scores[is_not_mask]
+                
+                plot_rows.append(row_display_values)
 
-        plot_matrix = np.vstack(plot_rows)
-        
-        # --- 绘图逻辑 ---
-        fig, ax = plt.subplots(figsize=(15, 0.6 * len(sorted_steps) + 1.5))
-        
-        # 使用灰度图 cmap='gray'
-        # vmin=0 (黑), vmax=1 (白)
-        im = ax.imshow(plot_matrix, cmap='gray', aspect='auto', interpolation='nearest', vmin=0, vmax=1)
-        
-        # 装饰
-        ax.set_yticks(np.arange(len(sorted_steps)))
-        ax.set_yticklabels([f"Step {s}" for s in sorted_steps])
-        ax.set_xticks(np.arange(0, 55, 5))
-        ax.set_xlabel("Token Index", fontsize=10)
-        ax.set_ylabel("Diffusion Steps (0 at top)", fontsize=10)
-        ax.set_title("Token Semantic Similarity (Black: Mask | White: Matched)", fontsize=12, pad=15)
-        
-        # 添加简单的 Colorbar
-        cbar = plt.colorbar(im, ax=ax, pad=0.02)
-        cbar.set_ticks([0, 0.2, 1.0])
-        cbar.set_ticklabels(['Mask', 'Low Sim', 'High Sim'])
+            # 堆叠矩阵
+            plot_matrix = np.vstack(plot_rows)
+            
+            # --- 核心修改部分 ---
+            fig, ax = plt.subplots(figsize=(15, 0.6 * len(sorted_steps) + 1.5))
+            
+            # 关键修改：origin='lower' 
+            # 这会将 plot_matrix 的第一行 (Step 0) 画在坐标轴的最下方
+            im = ax.imshow(plot_matrix, cmap='gray', aspect='auto', interpolation='nearest', 
+                        vmin=0, vmax=1, origin='lower')
+            
+            # 装饰
+            ax.set_yticks(np.arange(len(sorted_steps)))
+            ax.set_yticklabels([f"Step {s}" for s in sorted_steps]) # 对应关系会自动匹配
+            
+            ax.set_xticks(np.arange(0, 55, 5))
+            ax.set_xlabel("Token Index", fontsize=10)
+            # 修改描述文字
+            ax.set_ylabel("Diffusion Steps (0 at bottom)", fontsize=10) 
+            ax.set_title("Token Semantic Similarity (Black: Mask | White: Matched)", fontsize=12, pad=15)
+            # --------------------
 
-        # 网格线
-        ax.set_xticks(np.arange(-0.5, 54, 1), minor=True)
-        ax.set_yticks(np.arange(-0.5, len(sorted_steps), 1), minor=True)
-        ax.grid(which='minor', color='red', linestyle='-', linewidth=0.5, alpha=0.2) # 灰度图用淡红细线看格点很清晰
-        ax.tick_params(which='minor', size=0)
+            # 其他逻辑保持不变...
+            cbar = plt.colorbar(im, ax=ax, pad=0.02)
+            cbar.set_ticks([0, 0.2, 1.0])
+            cbar.set_ticklabels(['Mask', 'Low Sim', 'High Sim'])
 
-        # 保存
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        plt.savefig(output_path, bbox_inches='tight', dpi=300, facecolor='white')
-        plt.close()
-        
-        print(f"Grayscale visualization saved to: {output_path}")
+            ax.set_xticks(np.arange(-0.5, 54, 1), minor=True)
+            ax.set_yticks(np.arange(-0.5, len(sorted_steps), 1), minor=True)
+            ax.grid(which='minor', color='red', linestyle='-', linewidth=0.5, alpha=0.2)
+
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            plt.savefig(output_path, bbox_inches='tight', dpi=300, facecolor='white')
+            plt.close()
 
     def visualize_mask_steps(self, intermediate_tokens, save_steps, output_path='demo_out/mask_vis/mask_step.png'):
         """

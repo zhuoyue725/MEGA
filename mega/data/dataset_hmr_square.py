@@ -216,6 +216,8 @@ class DatasetHMRSquare(Dataset):
 
         if "coco" in self.dataset_file[:-4]:
             img_path = f"datasets/coco_train/{imgname}"
+        if "mpii" in self.dataset_file[:-4]:
+            img_path = f"datasets/mpi_inf_3dhp/{imgname}"
         if "BEDLAM" in self.dataset_file[:-4]:
             is_3dpw = True
             is_bedlam = True

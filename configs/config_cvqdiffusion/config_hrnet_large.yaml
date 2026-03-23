@@ -55,17 +55,20 @@ training_data:
   # file: 'configs/config_cvqdiffusion/emdb_train.txt'  # EMDB完整训练集
   # file: 'configs/config_cvqdiffusion/bedlam_train.txt'
   # file: 'configs/config_cvqdiffusion/bedlam_train_sub.txt'
-  file: 'configs/config_cvqdiffusion/coco_train_100.txt'
+  # file: 'configs/config_cvqdiffusion/coco_train_100.txt'
+  file: 'configs/config_cvqdiffusion/mpii_train_100.txt'
   
 validation_data:
   # file: 'configs/config_cvqdiffusion/emdb_validation.txt'  # EMDB验证集
   # file: 'configs/config_cvqdiffusion/emdb_train_100.txt'  
-  file: 'configs/config_cvqdiffusion/coco_train_100.txt'
+  # file: 'configs/config_cvqdiffusion/coco_train_100.txt'
   # file: 'configs/config_cvqdiffusion/bedlam_train.txt' 
+  file: 'configs/config_cvqdiffusion/mpii_train_100.txt'
 
 test_data:
   # file: 'configs/config_cvqdiffusion/emdb_train_100.txt' 
-  file: 'configs/config_cvqdiffusion/coco_train_100.txt'
+  file: 'configs/config_cvqdiffusion/mpii_train_100.txt'
+  # file: 'configs/config_cvqdiffusion/coco_train_100.txt'
   # file: 'configs/config_cvqdiffusion/coco_train.txt'
   # file: 'configs/config_cvqdiffusion/emdb_train.txt' 
   # file: 'configs/config_cvqdiffusion/bedlam_train.txt'
@@ -74,8 +77,15 @@ test_data:
 resume:
 # 训练EMDB：checkpoint/CVQDIFFUSION/2026-03-14/19-57_EMDB_EPOCH16/model_checkpoint
 # 预训练后的：checkpoint/UNCONDITIONAL_DIFFUSION/2026-03-22/16-18/model_best_loss
-  path: ''           # 留空表示从头开始训练 'checkpoint/CVQDIFFUSION/2026-03-15/22-20/model_best_loss
-  optimizer: false   # 是否恢复优化器状态
+  path: 'checkpoint/CVQDIFFUSION/2026-03-14/19-57_EMDB_EPOCH16/model_checkpoint' #'checkpoint/CVQDIFFUSION/2026-03-22/20-54/model_best_loss'           # 留空表示从头开始训练 'checkpoint/CVQDIFFUSION/2026-03-15/22-20/model_best_loss
+  optimizer: true   # 是否恢复优化器状态
+
+pretrain:
+  # 从预训练的无条件扩散模型加载权重（可选）
+  # 留空表示不加载预训练权重，从随机初始化开始训练
+  # 示例：checkpoint/UNCONDITIONAL_DIFFUSION/2026-03-22/16-18/model_best_loss
+  path: ''           # 预训练无条件扩散模型的 checkpoint 路径
+  # path: 'checkpoint/UNCONDITIONAL_DIFFUSION/2026-03-22/16-33/model_best_loss'           # 预训练无条件扩散模型的 checkpoint 路径
 
 # ------------------------------------------------------------------ #
 # 参数调整建议：

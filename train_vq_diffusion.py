@@ -135,6 +135,11 @@ def main(cfg: DictConfig):
     )
 
     trainer.load_rotcam_weights('checkpoint/CVQMAE/rotcam_weights.pth')
+    # ---- 可选：从预训练的无条件扩散模型加载权重 ----
+    pretrain_path = cfg.get('pretrain', {}).get('path', '')
+    if pretrain_path:
+        trainer.load_from_pretrain(path=pretrain_path)
+        print(f'Loaded pretrained unconditional weights from {pretrain_path}')
     # ---- 可选：从 checkpoint 恢复 ----
     resume_path = cfg.get('resume', {}).get('path', '')
     if resume_path:
