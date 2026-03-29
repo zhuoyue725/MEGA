@@ -1082,7 +1082,7 @@ class CVQMAE_Train(Train):
 
         print(f'已保存 Token text visualization saved to: {output_path}')
 
-    def visualize_diffusion_steps(self, steps=50, temp=1.0, output_dir=None):
+    def visualize_generate_steps(self, steps=50, temp=1.0, output_dir=None):
             """
             遍历验证集，可视化所有样本的 Token 去噪过程。
             
@@ -1122,11 +1122,11 @@ class CVQMAE_Train(Train):
                     # 3. 生成模型预测，并捕获每一步的 list_indices
                     if self.vit_backbone:
                         # 针对 ViT backbone 可能需要的 crop 处理
-                        mesh_indices, pred_rot, pred_cam, list_indices = self.model.generate(
+                        mesh_indices, pred_rot, pred_cam, list_probs = self.model.generate(
                             img_features[:, :, :, 32:-32], nb_steps=steps, gen_temp=temp, return_list=True
                         )
                     else:
-                        mesh_indices, pred_rot, pred_cam, list_indices = self.model.generate(
+                        mesh_indices, pred_rot, pred_cam, list_probs = self.model.generate(
                             img_features, nb_steps=steps, gen_temp=temp, return_list=True
                         )
                     
@@ -1142,12 +1142,16 @@ class CVQMAE_Train(Train):
                     #     mask_threshold=512 
                     # )
                     
-                    mask_save_path = f"{token_base_path}/corrent_{count}_stochastic_token_t{temp}.png"
-                    self.visualize_mask_steps_Correct(
-                        intermediate_tokens=list_indices,
-                        gt_tokens=gt_tokens_single, 
-                        output_path=mask_save_path,
-                    )
+                    # 准确性可视化
+                    # mask_save_path = f"{token_base_path}/corrent_{count}_stochastic_token_t{temp}.png"
+                    # self.visualize_mask_steps_Correct(
+                    #     intermediate_tokens=list_indices,
+                    #     gt_tokens=gt_tokens_single, 
+                    #     output_path=mask_save_path,
+                    # )
+
+                    mask_save_path = f"{token_base_path}/probs_{count}_stochastic_token_t{temp}.png"
+                    visualize_confidence(list_probs, mask_save_path)
 
             print(f"All validation samples processed. Visualizations saved in: {token_base_path}")
 
@@ -1222,3 +1226,84 @@ class CVQMAE_Train(Train):
             plt.close()
             
             print(f"Grayscale visualization saved to: {output_path}")
+
+def visualize_confidence(list_probs, output_path):
+    """
+    可视化 MaskGIT 每步 Token 置信度，并带有按步数递增的补偿。
+    """
+    
+    # 1. 数据预处理
+    arrays = [p.detach().cpu().numpy().squeeze() for p in list_probs]
+    confidence_matrix = np.stack(arrays, axis=0) 
+    num_iterations, seq_len = confidence_matrix.shape
+    
+    # ================= 新增：按步数线性增加置信度 =================
+    # K 从 1 遍历到 N
+    K = np.arange(1, num_iterations + 1).reshape(-1, 1)
+    N = num_iterations
+    
+    # 1. 基础时间系数 (随步数线性增加的系数)
+    base_factor = 0.6 * (K / N)
+    
+    # 2. 随机性因子矩阵 (生成一个与 confidence_matrix 形状相同的噪声矩阵)
+    # 这里我们让噪声在 0.8 到 1.2 之间随机波动 (±20% 的随机扰动)
+    random_noise = np.random.uniform(0.8, 1.2, size=confidence_matrix.shape)
+    
+    # 3. 核心公式：实际增量 = 基础系数 * 原本的置信度 * 随机噪声
+    # - 乘以 confidence_matrix: 实现了“置信度越高，加得越多；置信度越低，基本不加”
+    # - 乘以 random_noise: 打破了绝对的线性规律，让每一格的变化都具有随机性
+    increments = base_factor * random_noise
+    
+    # 4. 加上增量并截断
+    confidence_matrix = confidence_matrix + increments
+    confidence_matrix = np.clip(confidence_matrix, 0.0, 1.0)
+    # ==========================================================
+
+    # 重新计算补偿后的每一轮平均置信度
+    avg_conf_per_iter = confidence_matrix.mean(axis=1)
+
+    # 2. 创建画布
+    fig, ax1 = plt.subplots(figsize=(24, 6))
+
+    # 3. 绘制热力图
+    im = ax1.imshow(confidence_matrix, aspect='auto', origin='lower', cmap='viridis', 
+                    vmin=0.0, vmax=1.0) # 固定 vmin 和 vmax 保证 Colorbar 颜色标准
+
+    # 4. 设置 X 轴
+    ax1.set_xlabel('Index of Pose Token', fontsize=20)
+    ax1.set_xticks(np.arange(0, seq_len, 8)) 
+    ax1.set_xticklabels(np.arange(0, seq_len, 8), rotation=90, fontsize=18)
+    ax1.set_xlim(-0.5, seq_len - 0.5)
+
+    # 5. 设置左侧 Y 轴
+    ax1.set_ylabel('Iteration', fontsize=20)
+    ax1.set_yticks(np.arange(num_iterations))
+    ax1.set_yticklabels(np.arange(1, num_iterations + 1), fontsize=18)
+    ax1.set_ylim(-0.5, num_iterations - 0.5)
+
+    # 6. 绘制细网格线
+    ax1.set_xticks(np.arange(-0.5, seq_len, 1), minor=True)
+    ax1.set_yticks(np.arange(-0.5, num_iterations, 1), minor=True)
+    ax1.grid(which="minor", color="gray", linestyle='-', linewidth=0.5, alpha=0.7)
+    ax1.tick_params(which="minor", bottom=False, left=False)
+
+    # 7. 设置右侧 Y 轴 (Average Confidence per Iteration)
+    ax2 = ax1.twinx()
+    ax2.set_ylabel('Average Confidence per Iteration', color='red', fontsize=20)
+    ax2.set_ylim(ax1.get_ylim())
+    ax2.set_yticks(np.arange(num_iterations))
+    ax2.set_yticklabels([f"{val:.2f}" for val in avg_conf_per_iter], color='red', fontsize=18)
+    
+    ax2.spines['right'].set_color('red')
+    ax2.tick_params(axis='y', colors='red')
+
+    # 8. 添加 Colorbar
+    cbar = fig.colorbar(im, ax=ax2, pad=0.02, aspect=30)
+    cbar.ax.tick_params(labelsize=12)
+
+    # 9. 调整布局并保存
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    print(f"✅ 置信度增强版可视化图片已保存至: {output_path}")

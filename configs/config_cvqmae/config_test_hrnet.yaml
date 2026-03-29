@@ -60,10 +60,10 @@ validation_data:
   file: 'configs/config_cvqmae/3dpw_occ_100.txt'
 
 test_data:
-  # file: 'configs/config_cvqmae/3dpw_test.txt'
+  file: 'configs/config_cvqmae/3dpw_test.txt'
   # file: 'configs/config_cvqdiffusion/emdb_train_100.txt'
   # file: 'configs/config_cvqmae/3dpw_occ.txt'
-  file: 'configs/config_cvqmae/3dpw_occ_100.txt'
+  # file: 'configs/config_cvqmae/3dpw_occ_100.txt'
 
 # 可选：从已有 checkpoint 恢复（用于 mesh_regressor.load）
 resume:

@@ -349,10 +349,10 @@ class CVQMAE(torch.nn.Module):
             )
 
             # sampling & scoring
-            sampled_ids = add_gumbel_noise(logits, annealed_temp).argmax(dim=-1)
+            sampled_ids = add_gumbel_noise(logits, annealed_temp).argmax(dim=-1) # [1, 54]
             sampled_logits = torch.squeeze(
                 torch.gather(logits, dim=-1, index=torch.unsqueeze(sampled_ids, -1)), -1
-            )
+            ) # [1, 54] 原先的取值置信度
             sampled_ids = torch.where(is_mask, sampled_ids, patches)
             sampled_logits = torch.where(is_mask, sampled_logits, +np.inf).float()
             # masking
@@ -371,8 +371,11 @@ class CVQMAE(torch.nn.Module):
             patches = torch.where(masking, 0, sampled_ids) # 掩码替换为0
             mask = torch.where(masking, 0, 1)
             if return_list:
-                list_indices.append(sampled_ids) # 某个批次的
-                # list_indices.append(patches)
+                probs = torch.nn.functional.softmax(logits, dim=-1) # 归一化
+                sampled_probs = torch.squeeze(torch.gather(probs, dim=-1, index=torch.unsqueeze(sampled_ids, -1)), -1) #[1, 54]归一化后的置信度
+                list_indices.append(sampled_probs) # 每个的置信度
+                # list_indices.append(sampled_ids) # 某个批次的无mask 索引
+                # list_indices.append(patches) # 索引带mask是0
 
         if return_list:
             return patches, predicted_rot, predicted_cam, list_indices

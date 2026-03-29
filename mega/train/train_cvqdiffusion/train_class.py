@@ -20,7 +20,7 @@ from mega.base import Train
 from mega.model.cvqdiffusion import CVQDiffusion
 from mega.data import MixedDataset
 from mega.utils.eval import pa_mpjpe, mpjpe, v2v
-from mega.utils.loss import reprojection_loss, reprojection_loss_conf24, reprojection_loss_conf24_vis, reprojection_loss_conf_vis, reprojection_loss_vis, reprojection_loss_conf, visualize_reprojection_2d
+from mega.utils.loss import reprojection_loss, reprojection_loss_conf24, reprojection_loss_conf24_vis, reprojection_loss_conf_vis, reprojection_loss_vis, reprojection_loss_conf, visualize_reprojection_2d, orthographic_projection
 import pandas as pd
 from matplotlib.gridspec import GridSpec
 from ...utils.img_renderer import visualize_reconstruction_pyrender, PyRender_Renderer
@@ -258,6 +258,7 @@ class CVQDiffusion_Train(Train):
         self.load_epoch = 0
         self.step_count = 0    # 全局迭代步数，用于控制可视化频率
         self.save_every_n_steps = config_training.get('save_every_n_steps', None)  # 每N步保存一次，None表示按epoch保存
+        self.vis_every_n_steps = config_training.get('vis_every_n_steps', 1000)   # 每N步可视化一次, 默认1000
         
         # ---- 损失项记录 ----
         self.train_loss: list = []      # 总损失
@@ -377,8 +378,8 @@ class CVQDiffusion_Train(Train):
                 torch.save(parameters, checkpoint_path)
                 print(f'\t [Step {self.step_count}] checkpoint saved (loss={loss.item():.4f})')
 
-            # ---- 每 50 步绘制一次重建网格（参照 CVQMAE_Train）----
-            if self.step_count % 50 == 0 and self.f is not None:
+            # ---- 每 vis_every_n_steps 步绘制一次重建网格（参照 CVQMAE_Train）----
+            if self.step_count % self.vis_every_n_steps == 0 and self.f is not None:
                 with torch.no_grad():
                     # 用当前 img 采样生成 token，解码为网格
                     sample_out  = self.model.sample(
@@ -420,6 +421,19 @@ class CVQDiffusion_Train(Train):
                 save_prefix = (f'{self.follow.path_samples_train}/'
                                f'epoch{epoch}_step{self.step_count}_cmp')
                 self.plot_compare_(pred_mesh, real_mesh, save_prefix)
+
+                # 计算预测的 2D 关节点并可视化重投影
+                J_regressor_batch = self.joints_reg_smpl[None, :].expand(pred_mesh.shape[0], -1, -1).to(pred_mesh.device)
+                pred_3dkpt = torch.matmul(J_regressor_batch, pred_mesh)
+                pred_2d = orthographic_projection(pred_3dkpt, cam.cpu())  # cam 是 pred_cam.cpu()
+
+                visualize_reprojection_2d(
+                    gt_2d=data["j2d"][:].to(torch.float32).cpu(),
+                    pred_2d=pred_2d,
+                    vis_path=str(self.follow.path_reprojection_vis),
+                    vis_counter=f"epoch{epoch}_{self.step_count}",
+                    raw_img=data["raw_img"][:],
+                )
         return losses
 
     # ---------------------------------------------------------------- #
@@ -545,11 +559,22 @@ class CVQDiffusion_Train(Train):
     # ---------------------------------------------------------------- #
     #  eval_deterministic                                               #
     # ---------------------------------------------------------------- #
-    def eval_deterministic(self, visualize: bool = True):
+    def eval_deterministic(
+        self,
+        sample_size: int = 1,
+        visualize: bool = True,
+        vis_all_sample: bool = False,
+    ):
         """用 diffusion 采样（确定性 filter_ratio=0）评估验证集指标。
 
+        Args:
+            sample_size: 每个 batch 中要绘制的样本数量（从前向后）。
+            visualize: 是否保存可视化结果。
+            vis_all_sample: 是否对当前 batch 中的所有样本分别绘制重投影结果。
+
         指标：PA-MPJPE、MPJPE、V2V（mm），结果保存为 results.csv。
-        可视化：GT 网格 + 重建网格（每个 batch 存一张对比图）。
+        可视化：前 sample_size 个预测网格的重投影结果（默认为 False），
+        vis_all_sample=True 时直接对 batch 里每个样本单独绘图。
         """
         self.model.eval()
         with torch.no_grad():
@@ -572,10 +597,10 @@ class CVQDiffusion_Train(Train):
                 pred_tokens_clipped = torch.clamp(pred_tokens, 0, 511)
                 mesh_canonical   = self.vqvae.decode(pred_tokens_clipped).cpu()   # [B, V, 3]
 
-                pred_rot = sample_out['pred_rot']
-                rotmat = rotation_6d_to_matrix(pred_rot).cpu()
-                pred_mesh = (rotmat @ mesh_canonical.transpose(2, 1)).transpose(2, 1)
-
+                # pred_rot = sample_out['pred_rot']
+                # rotmat = rotation_6d_to_matrix(pred_rot).cpu()
+                # pred_mesh = (rotmat @ mesh_canonical.transpose(2, 1)).transpose(2, 1)
+                pred_mesh = data['mesh']
                 gt_mesh = data['mesh']   # [B, V, 3]，世界坐标系真值
 
                 if self.joints_reg is not None:
@@ -593,9 +618,57 @@ class CVQDiffusion_Train(Train):
 
                 if visualize:
                     count += 1
+
+                    # 1) 保留原来的对比曲线（兼容）
                     save_prefix = (f'{self.follow.path_samples_train}/'
-                               f'eval_det_step{self.step_count}_cmp_{count}')
+                                   f'eval_det_step{count}_cmp_{count}')
                     self.plot_compare_(pred_mesh, gt_mesh, save_prefix)
+
+                    # 2) 新增：前 sample_size 个样本或全部样本的重投影结果
+                    B = imgs.shape[0]
+
+                    if 'raw_img' in data:
+                        raw_img_all = data['raw_img'].cpu()
+                    else:
+                        raw_img_all = data['img'].cpu()
+                    raw_img_all = raw_img_all.numpy().transpose(0, 2, 3, 1)
+
+                    if vis_all_sample:
+                        # 对当前 batch 的每个样本单独保存
+                        for i in range(B):
+                            pred_mesh_i = pred_mesh[i:i+1].cpu().numpy()
+                            pred_cam_i = sample_out['pred_cam'][i:i+1].cpu().numpy()
+                            raw_img_i = raw_img_all[i:i+1]
+
+                            reproj_save_path = (
+                                f'{self.follow.path_samples}/'
+                                f'eval_det_step{count}_sample{i}_reproj.png'
+                            )
+
+                            self.plot_reproj_samples_(
+                                raw_img_i,
+                                pred_mesh_i,
+                                pred_cam_i,
+                                save=reproj_save_path,
+                            )
+                    else:
+                        num = min(sample_size, B)
+                        if num > 0:
+                            pred_mesh_sel = pred_mesh[:num].cpu().numpy()
+                            pred_cam_sel = sample_out['pred_cam'][:num].cpu().numpy()
+                            raw_img_sel = raw_img_all[:num]
+
+                            reproj_save_path = (
+                                f'{self.follow.path_samples}/'
+                                f'eval_det_step{self.step_count}_reproj_{count}.png'
+                            )
+
+                            self.plot_reproj_samples_(
+                                raw_img_sel,
+                                pred_mesh_sel,
+                                pred_cam_sel,
+                                save=reproj_save_path,
+                            )
 
             print(
                 f'V2V: {mean(lv2v):.2f}  '

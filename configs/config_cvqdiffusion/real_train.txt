@@ -1,0 +1,3 @@
+datasets/coco_train.npz
+datasets/EMDB/train.npz
+datasets/3DPW/3DPW_train.npz

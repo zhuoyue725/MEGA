@@ -1,1 +1,1 @@
-datasets/mpii_train_100.npz
+datasets/mpi_inf_3dhp/mpii_train_100.npz

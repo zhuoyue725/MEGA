@@ -217,6 +217,7 @@ class CVQDiffusion(nn.Module):
         filter_ratio: float = 0.5,
         temperature: float = 1.0,
         return_logits: bool = False,
+        batch_size: int = 1,
         content_token=None,
         save_steps=None,
     ):
@@ -250,6 +251,7 @@ class CVQDiffusion(nn.Module):
                 temperature=temperature,
                 return_logits=return_logits,
                 save_steps=save_steps,
+                batch_size=batch_size,
             )
         else:
             # 否则调用标准的 sample()
@@ -261,6 +263,7 @@ class CVQDiffusion(nn.Module):
                 filter_ratio=filter_ratio,
                 temperature=temperature,
                 return_logits=return_logits,
+                batch_size=batch_size,
             )
         
         out['pred_rot'] = pred_rot
