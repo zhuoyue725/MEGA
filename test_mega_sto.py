@@ -107,10 +107,10 @@ def main(cfg: DictConfig):
     )
 
     # pretrain_mesh_regressor.eval_deterministic()
-    # pretrain_mesh_regressor.eval_stochastic(sample_size=1, steps=5, temp=1, visualise=True)
+    pretrain_mesh_regressor.eval_stochastic(sample_size=25, steps=5, temp=1, visualise=False)
     # pretrain_mesh_regressor.eval_stochastic_visualize_samples(sample_size=5, temp=2)
     # pretrain_mesh_regressor.eval_stochastic_visualize_step(steps=5, temp=1, sample_size=1, sample_idx=0)
-    pretrain_mesh_regressor.visualize_generate_steps(steps=5, temp=1)
+    # pretrain_mesh_regressor.visualize_generate_steps(steps=5, temp=1)
 
 
 if __name__ == "__main__":

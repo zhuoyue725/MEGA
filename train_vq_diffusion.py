@@ -146,7 +146,7 @@ def main(cfg: DictConfig):
         load_optimizer = cfg.get('resume', {}).get('optimizer', True)
         trainer.load(path=resume_path, optimizer=load_optimizer)
         # 加载相机和旋转网络参数
-        # trainer.load_rotcam_weights('checkpoint/CVQMAE/rotcam_weights.pth')
+        trainer.load_rotcam_weights('checkpoint/CVQMAE/rotcam_weights.pth')
         print(f'Resumed from {resume_path}')
 
     # ---------------------------------------------------------------- #

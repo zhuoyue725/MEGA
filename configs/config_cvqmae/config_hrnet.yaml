@@ -1,11 +1,15 @@
 train:
-  batch: 16
+  batch: 1
   lr: 1e-3
   device: 'cuda'
   total_epoch: 200
   workers: 8
   weight_decay: 0.05
   warmup_epoch: 20
+  loss_weights:
+    cross_entropy: 0.1
+    rotation: 0.5
+    reprojection: 1.0
 
 
 vqvaemesh:
@@ -17,7 +21,7 @@ vqvaemesh:
   
 
 modelconv:
-  batch: 16
+  batch: 1
   connection_folder: body_models/ConnectionMatrices/
   initial_connection_fn: body_models/ConnectionMatrices/_pool0.npy
   connection_layer_lst: ["pool0", "pool1", "pool2","pool3", "pool4", "pool5", "pool6","unpool6", "unpool5","unpool4","unpool3","unpool2","unpool1", "unpool0"]
@@ -49,18 +53,80 @@ backbone:
 training_data:
   # file: 'configs/config_cvqmae/coco_train.txt'
   # file: 'configs/config_cvqmae/3dpw_train.txt'
-  file: 'configs/config_cvqdiffusion/emdb_train_100.txt'
-  
+  # file: 'configs/config_cvqdiffusion/emdb_train_100.txt'
+  # file: 'configs/config_cvqdiffusion/bedlam_train.txt'
+  # file: 'configs/config_cvqdiffusion/bedlam_train_sub.txt'
+  # file: 'configs/config_cvqdiffusion/coco_train_100.txt'
+  # file: 'configs/config_cvqdiffusion/mpii_train_100.txt'
+  # file: 'configs/config_cvqdiffusion/real_train.txt'
+  # file: 'configs/config_cvqdiffusion/lspet_train.txt'
+  # file: 'configs/config_cvqdiffusion/ssp3d_train.txt'
+  # file: 'configs/config_cvqdiffusion/lspet_train_100.txt'
+  # file: 'configs/config_cvqmae/3dpw_emdb.txt'
+  # file: 'configs/config_cvqdiffusion/emdb_occ_300.txt'
+  file: 'configs/config_cvqdiffusion/lspet_train_21.txt'
+
 validation_data:
-  # file: 'configs/config_cvqmae/3dpw_validation.txt'
-  file: 'configs/config_cvqdiffusion/emdb_train_100.txt'
+  # file: 'configs/config_cvqmae/coco_train.txt'
+  # file: 'configs/config_cvqmae/3dpw_train.txt'
+  # file: 'configs/config_cvqdiffusion/emdb_train_100.txt'
+  # file: 'configs/config_cvqdiffusion/emdb_occ_300.txt'
+  file: 'configs/config_cvqdiffusion/lspet_train_21.txt'
+  # file: 'configs/config_cvqdiffusion/bedlam_train.txt'
+  # file: 'configs/config_cvqdiffusion/bedlam_train_sub.txt'
+  # file: 'configs/config_cvqdiffusion/coco_train_100.txt'
+  # file: 'configs/config_cvqdiffusion/mpii_train_100.txt'
+  # file: 'configs/config_cvqdiffusion/real_train.txt'
+  # file: 'configs/config_cvqdiffusion/lspet_train.txt'
+  # file: 'configs/config_cvqdiffusion/lspet_train_100.txt'
+  # file: 'configs/config_cvqdiffusion/ssp3d_train.txt'
 
 test_data:
-  # file: 'configs/config_cvqmae/3dpw_test.txt'
-  file: 'configs/config_cvqdiffusion/emdb_train_100.txt'
+  # file: 'configs/config_cvqmae/coco_train.txt'
+  # file: 'configs/config_cvqmae/3dpw_train.txt'
+  # file: 'configs/config_cvqdiffusion/emdb_train_100.txt'
+  # file: 'configs/config_cvqdiffusion/emdb_train_100.txt'
+  # file: 'configs/config_cvqdiffusion/bedlam_train.txt'
+  # file: 'configs/config_cvqdiffusion/bedlam_train_sub.txt'
+  # file: 'configs/config_cvqdiffusion/coco_train_100.txt'
+  # file: 'configs/config_cvqdiffusion/mpii_train_100.txt'
+  # file: 'configs/config_cvqdiffusion/real_train.txt'
+  # file: 'configs/config_cvqdiffusion/lspet_train.txt'
+  # file: 'configs/config_cvqdiffusion/lspet_train_100.txt'
+  # file: 'configs/config_cvqdiffusion/ssp3d_train.txt'
+  # file: 'configs/config_cvqdiffusion/emdb_occ_300.txt'
+  # file: 'configs/config_cvqdiffusion/emdb_occ_300_sub.txt'
+  # file: 'configs/config_cvqdiffusion/lspet_train_21.txt'
+  # file: 'configs/config_cvqdiffusion/3dpw_occ_100.txt'
+  # file: 'configs/config_cvqdiffusion/emdb_train.txt'
+  file: 'configs/config_cvqdiffusion/lspet_train_300.txt'
 
 # 可选：从已有 checkpoint 恢复（用于 mesh_regressor.load）
 resume:
   path: 'checkpoint/CVQMAE/mega_hrnet'           # 留空表示使用默认预训练: checkpoint/CVQMAE/mega_hrnet
+  # path: 'checkpoint/CVQMAE/2026-3-31/17-11-LSPET/model_best_loss'   # LSPET本身2D关键点有问题，需要单独选一些样例
+  # path: 'checkpoint/CVQMAE/2026-3-31/23-34-3DPW-EMDB/model_checkpoint'   # 2D对齐不太行        # 留空表示使用默认预训练: checkpoint/CVQMAE/mega_hrnet
+  # path: 'checkpoint/CVQMAE/2026-4-1/17-33/model_best_2d'           # 留空表示使用默认预训练: checkpoint/CVQMAE/mega_hrnet
+  # path: 'checkpoint/CVQMAE/2026-4-1/19-45/model_best_2d'        # 2d损失项调整   # 留空表示使用默认预训练: checkpoint/CVQMAE/mega_hrnet
+  # path: 'checkpoint/CVQMAE/2026-4-1/21-3/model_best_2d'
   optimizer: false
 
+## LSPET
+##  4 25（win） 33  34  47（win）83 
+
+## SSP3D
+## 225 249 280 302 255
+
+## 3DPW
+# 99  97 112 126 286
+
+# 23-34-3DPW-EMDB
+# EMDB-OCC 
+# V2V: 85.5649154513113, MPJPE: 70.93365929059443, PAMPJPE 48.78520250560776
+
+
+# im00005 im06023 im06097 im06380 im06362  im06601   im06442  im06526 im06523
+# im08584 im08590 im09991.png im09990 im09916 im09791 im09717 im09520 im09225 im09007 im08803.png im08492
+
+
+# 测试EMDB多输出结果

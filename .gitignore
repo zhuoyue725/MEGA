@@ -8,3 +8,5 @@
 demo_out
 demo_data
 /viz_test
+/data/*
+scripts/pic

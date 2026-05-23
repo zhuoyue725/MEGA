@@ -45,7 +45,9 @@ def main(cfg: DictConfig):
 
     """ Load MeshRegressor Model """
     mega = CVQMAE(backbone=backbone, **cfg.model)
-    mega.load("checkpoint/CVQMAE/mega_hrnet")  # Load pre-trained weights
+    resume_path = cfg.get("resume", {}).get("path", "checkpoint/CVQMAE/mega_hrnet")
+    mega.load(resume_path)
+    print(f"Loaded model from: {resume_path}")
     mega.to(device).eval()
 
     convmesh_model = mesh_vq_vae.FullyConvAE(cfg.modelconv, test_mode=True)
@@ -57,7 +59,7 @@ def main(cfg: DictConfig):
     # Create output directory
     os.makedirs("demo_out", exist_ok=True)
     
-    input_path = "demo_data/"
+    input_path = "demo_data/input/dataset_samples/lspet_sub/"
 
     renderer = Renderer(1000, 224, faces=ref_bm["f"].astype(np.int32))
 
@@ -74,6 +76,9 @@ def main(cfg: DictConfig):
                                 save=False, 
                                 verbose=False
                                     )[0].boxes.xyxy.detach().cpu().numpy()
+            
+            if len(boxes) > 0:
+                boxes = boxes[:1]  # 只处理第一个人
             
             dataset = DemoDataset(img_cv2, boxes)
             dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False, num_workers=0)
@@ -120,7 +125,10 @@ def main(cfg: DictConfig):
                     input_img = np.concatenate([input_img, np.ones_like(input_img[:,:,:1])], axis=2) # Add alpha channel
                     input_img_overlay = input_img[:,:,:3] * (1-cam_view[:,:,3:]) + cam_view[:,:,:3] * cam_view[:,:,3:]
     
-                    cv2.imwrite(os.path.join("demo_out", f'{img_fn}_all.png'), 255*input_img_overlay[:, :, ::-1])
+                    output_dir = "demo_out/mega/lspet_sub"
+                    os.makedirs(output_dir, exist_ok=True)
+                    cv2.imwrite(os.path.join(output_dir, f'{img_fn}_all.png'), 255*input_img_overlay[:, :, ::-1])
+                    print(f"Saved output for {file} to ./{output_dir}/{img_fn}_all.png")
     
 
 if __name__ == "__main__":

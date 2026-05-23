@@ -4,14 +4,14 @@
 # ------------------------------------------------------------------ #
 
 train:
-  batch: 16          # 大batch size，提升训练稳定性
+  batch: 128          # 大batch size，提升训练稳定性
   lr: 1e-4           # 基础学习率
   device: 'cuda'
-  total_epoch: 10000   # 大数据集通常100-200个epoch足够
+  total_epoch: 120   # 大数据集通常100-200个epoch足够
   workers: 4         # 多进程数据加载，加速训练
   weight_decay: 1e-4 # L2正则化，防止过拟合
   warmup_epoch: 10   # warmup期，让训练更稳定
-  vis_every_n_steps: 5  # 每N步绘制一次2D重投影，可视化间隔，默认1000
+  vis_every_n_steps: 5000  # 每N步绘制一次2D重投影，可视化间隔，默认1000
 
 vqvaemesh:
   num_embeddings: 512
@@ -21,7 +21,7 @@ vqvaemesh:
   num_quantizer: 1
 
 modelconv:
-  batch: 16          # 与train.batch保持一致
+  batch: 128          # 与train.batch保持一致
   connection_folder: body_models/ConnectionMatrices/
   initial_connection_fn: body_models/ConnectionMatrices/_pool0.npy
   connection_layer_lst: ["pool0", "pool1", "pool2","pool3", "pool4", "pool5", "pool6","unpool6", "unpool5","unpool4","unpool3","unpool2","unpool1", "unpool0"]
@@ -35,7 +35,7 @@ model:
   cond_emb_dim: 1024       # 条件向量投影维度
   num_tok: 512             # content codebook 大小
   seq_len: 54              # content 序列长度
-  n_emb: 512               # Transformer 隐层维度
+  n_emb: 1024               # Transformer 隐层维度 -> 1024?
   cond_dim: 1024           # cross-attention 条件维度
   cond_len: 49             # 条件序列长度（7×7）
   n_head: 8                # 注意力头数
@@ -54,20 +54,23 @@ save_every_n_steps: 5000
 # npz 数据集路径
 training_data:
   # file: 'configs/config_cvqdiffusion/emdb_train.txt'  # EMDB完整训练集
+  file: 'configs/config_cvqdiffusion/emdb_test.txt'
   # file: 'configs/config_cvqdiffusion/bedlam_train.txt'
   # file: 'configs/config_cvqdiffusion/bedlam_train_sub.txt'
   # file: 'configs/config_cvqdiffusion/coco_train_100.txt'
   # file: 'configs/config_cvqdiffusion/mpii_train_100.txt'
   # file: 'configs/config_cvqdiffusion/real_train.txt'
-  file: 'configs/config_cvqdiffusion/lspet_train.txt'
+  # file: 'configs/config_cvqdiffusion/lspet_train.txt'
+  # file: 'configs/config_cvqdiffusion/ssp3d_train.txt'
   
 validation_data:
   # file: 'configs/config_cvqdiffusion/emdb_validation.txt'  # EMDB验证集
-  # file: 'configs/config_cvqdiffusion/emdb_train_100.txt'  
+  file: 'configs/config_cvqdiffusion/emdb_train_100.txt'  
   # file: 'configs/config_cvqdiffusion/coco_train_100.txt'
   # file: 'configs/config_cvqdiffusion/bedlam_train.txt' 
   # file: 'configs/config_cvqdiffusion/mpii_train_100.txt'
-  file: 'configs/config_cvqdiffusion/lspet_train.txt'
+  # file: 'configs/config_cvqdiffusion/lspet_train.txt'
+  # file: 'configs/config_cvqdiffusion/ssp3d_train.txt'
 
 test_data:
   # file: 'configs/config_cvqdiffusion/emdb_train_100.txt' 
@@ -75,18 +78,35 @@ test_data:
   # file: 'configs/config_cvqdiffusion/coco_train_100.txt'
   # file: 'configs/config_cvqdiffusion/coco_train.txt'
   # file: 'configs/config_cvqdiffusion/emdb_train.txt' 
+  file: 'configs/config_cvqdiffusion/emdb_test.txt'
   # file: 'configs/config_cvqdiffusion/bedlam_train.txt'
-  file: 'configs/config_cvqdiffusion/lspet_train.txt'
+  # file: 'configs/config_cvqdiffusion/3dpw_occ_100.txt'
+  # file: 'configs/config_cvqdiffusion/lspet_train_100.txt'
+  # file: 'configs/config_cvqdiffusion/lspet_train_300.txt'
+  # file: 'configs/config_cvqdiffusion/ssp3d_train.txt'
+  # file: 'configs/config_cvqdiffusion/emdb_occ_300.txt'
+  # file: 'configs/config_cvqdiffusion/emdb_occ_300_sub.txt'
 
 # 可选：从已有 checkpoint 恢复训练
 resume:
 # 训练EMDB：checkpoint/CVQDIFFUSION/2026-03-14/19-57_EMDB_EPOCH16/model_checkpoint
 # 预训练后的：checkpoint/UNCONDITIONAL_DIFFUSION/2026-03-22/16-18/model_best_loss
-# checkpoint/CVQDIFFUSION/2026-03-14/19-57_EMDB_EPOCH16/model_checkpoint
 # checkpoint/CVQDIFFUSION/2026-03-24/13-42/model_checkpoint
+# checkpoint/CVQDIFFUSION/2026-03-14/19-57_EMDB_EPOCH16/model_checkpoint
   # path: '' #'checkpoint/CVQDIFFUSION/2026-03-22/20-54/model_best_loss'           # 留空表示从头开始训练 'checkpoint/CVQDIFFUSION/2026-03-15/22-20/model_best_loss
-  path: 'checkpoint/CVQDIFFUSION/2026-03-29/16-54/model_checkpoint' #'checkpoint/CVQDIFFUSION/2026-03-22/20-54/model_best_loss'           # 留空表示从头开始训练 'checkpoint/CVQDIFFUSION/2026-03-15/22-20/model_best_loss
-  optimizer: true   # 是否恢复优化器状态
+  # path: 'checkpoint/CVQDIFFUSION/2026-03-26/22-14-TWODAY/model_checkpoint'           # 留空表示从头开始训练 'checkpoint/CVQDIFFUSION/2026-03-15/22-20/model_best_loss
+  # path: 'checkpoint/CVQDIFFUSION/2026-03-29/20-45-SSP3D/model_best_loss'           # 留空表示从头开始训练 'checkpoint/CVQDIFFUSION/2026-03-15/22-20/model_best_loss
+  # path: 'checkpoint/CVQDIFFUSION/2026-03-29/16-54-LSPET/model_checkpoint'  #'checkpoint/CVQDIFFUSION/2026-03-22/20-54/model_best_loss'           # 留空表示从头开始训练 'checkpoint/CVQDIFFUSION/2026-03-15/22-20/model_best_loss
+  # path: 'checkpoint/CVQDIFFUSION/2026-03-26/22-14-TWODAY/model_best_loss'  #'checkpoint/CVQDIFFUSION/2026-03-22/20-54/model_best_loss'           # 留空表示从头开始训练 'checkpoint/CVQDIFFUSION/2026-03-15/22-20/model_best_loss
+  # path: 'checkpoint/CVQDIFFUSION/2026-03-26/22-14-TWODAY/model_best_loss'  #'checkpoint/CVQDIFFUSION/2026-03-22/20-54/model_best_loss'           # 留空表示从头开始训练 'checkpoint/CVQDIFFUSION/2026-03-15/22-20/model_best_loss
+  # path: 'checkpoint/CVQDIFFUSION/2026-03-29/20-45-SSP3D/model_best_loss'  #'checkpoint/CVQDIFFUSION/2026-03-22/20-54/model_best_loss'           # 留空表示从头开始训练 'checkpoint/CVQDIFFUSION/2026-03-15/22-20/model_best_loss
+  # path: 'checkpoint/CVQDIFFUSION/2026-05-02/20-16/model_best_loss'  #'checkpoint/CVQDIFFUSION/2026-03-22/20-54/model_best_loss'           # 留空表示从头开始训练 'checkpoint/CVQDIFFUSION/2026-03-15/22-20/model_best_loss
+  # path: 'checkpoint/CVQDIFFUSION/2026-05-04/11-12-Train1/model_best_loss'  #'checkpoint/CVQDIFFUSION/2026-03-22/20-54/model_best_loss'           # 留空表示从头开始训练 'checkpoint/CVQDIFFUSION/2026-03-15/22-20/model_best_loss
+  # path: 'checkpoint/CVQDIFFUSION/2026-05-10/11-11-Train2/model_best_loss'  #'checkpoint/CVQDIFFUSION/2026-03-22/20-54/model_best_loss'           # 留空表示从头开始训练 'checkpoint/CVQDIFFUSION/2026-03-15/22-20/model_best_loss
+  # path: 'checkpoint/CVQDIFFUSION/2026-05-20/21-56-Train3/model_best_loss'  #'checkpoint/CVQDIFFUSION/2026-03-22/20-54/model_best_loss'           # 留空表示从头开始训练 'checkpoint/CVQDIFFUSION/2026-03-15/22-20/model_best_loss
+  # path: 'checkpoint/CVQDIFFUSION/2026-05-21/16-58-Train4/model_best_loss'  #'checkpoint/CVQDIFFUSION/2026-03-22/20-54/model_best_loss'           # 留空表示从头开始训练 'checkpoint/CVQDIFFUSION/2026-03-15/22-20/model_best_loss
+  path: 'checkpoint/CVQDIFFUSION/2026-05-22/22-55-Train5/model_best_loss'  #'checkpoint/CVQDIFFUSION/2026-03-22/20-54/model_best_loss'           # 留空表示从头开始训练 'checkpoint/CVQDIFFUSION/2026-03-15/22-20/model_best_loss
+  optimizer: false   # 是否恢复优化器状态
 
 pretrain:
   # 从预训练的无条件扩散模型加载权重（可选）

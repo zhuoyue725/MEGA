@@ -72,6 +72,10 @@ def main(cfg: DictConfig):
     else:
         raise ValueError(f'Unsupported backbone type: {cfg.backbone.type}')
 
+    # 计算backbone参数量
+    backbone_params = sum(p.numel() for p in backbone.parameters())
+    print(f'Backbone params: {backbone_params:,} ({backbone_params/1_000_000:.2f}M)')
+
     # ---------------------------------------------------------------- #
     #  CVQDiffusion 模型                                                #
     # ---------------------------------------------------------------- #
@@ -93,7 +97,18 @@ def main(cfg: DictConfig):
         mask_weight=list(model_cfg.mask_weight),
     )
     total_params = sum(p.numel() for p in model.parameters())
-    print(f'CVQDiffusion params: {total_params:,}')
+    cvqdiffusion_params = total_params
+
+    # 计算不包含backbone的CVQDiffusion参数量
+    # 假设backbone参数都在model.backbone中
+    cvqdiffusion_without_backbone_params = 0
+    for name, param in model.named_parameters():
+        if not name.startswith('backbone.'):
+            cvqdiffusion_without_backbone_params += param.numel()
+
+    print(f'Backbone params: {backbone_params:,} ({backbone_params/1_000_000:.2f}M)')
+    print(f'CVQDiffusion (without backbone) params: {cvqdiffusion_without_backbone_params:,} ({cvqdiffusion_without_backbone_params/1_000_000:.2f}M)')
+    print(f'CVQDiffusion (total) params: {cvqdiffusion_params:,} ({cvqdiffusion_params/1_000_000:.2f}M)')
 
     # ---------------------------------------------------------------- #
     #  MeshVQVAE                                                        #
@@ -154,16 +169,23 @@ def main(cfg: DictConfig):
     # ---------------------------------------------------------------- #
     #  确定性评估                                                       #
     # ---------------------------------------------------------------- #
-    trainer.eval_deterministic(visualize=True, vis_all_sample=True)
+    v2v_result, avg_inference_time = trainer.eval_deterministic(visualize=False, vis_all_sample=False)
 
-    # V2V: 31.89  MPJPE: 28.88  PA-MPJPE: 19.38  (mm)
-    # sto:
-    # V2V: 21.20  MPJPE: 19.06  PA-MPJPE: 8.76  (mm)
-    # trainer.eval_stochastic(sample_size=sample_size, temperature=1.0, visualize=True, vis_idx=2) # 采样1.0，设置其他值结果不行
-    # diffusion_steps = list(range(99, -1, -5))
-    # diffusion_steps = [99, 79, 59, 39, 19, 9,8,7,6,5,4,3,2,1,0]
-    # diffusion_steps = [99, 79, 59, 39, 0]
-    # trainer.eval_stochastic_diffusion_step(diffusion_steps=diffusion_steps, temperature=1.0, vis_idx=1) # 99开始 0结束
+    # 计算总参数量（包含backbone）
+    total_params_with_backbone = cvqdiffusion_params + vqvae_params
+    total_params_without_backbone = cvqdiffusion_without_backbone_params + vqvae_params
+
+    print(f'\n======= CVQDiffusion 模型参数统计 =======')
+    print(f'1. Backbone (HRNet-W48): {backbone_params:,} ({backbone_params/1_000_000:.2f}M)')
+    print(f'2. CVQDiffusion (without backbone): {cvqdiffusion_without_backbone_params:,} ({cvqdiffusion_without_backbone_params/1_000_000:.2f}M)')
+    print(f'3. CVQDiffusion (total with backbone): {cvqdiffusion_params:,} ({cvqdiffusion_params/1_000_000:.2f}M)')
+    print(f'4. Mesh-VQVAE: {vqvae_params:,} ({vqvae_params/1_000_000:.2f}M)')
+    print(f'-----------------------------------------')
+    print(f'Total (without backbone + Mesh-VQVAE): {total_params_without_backbone:,} ({total_params_without_backbone/1_000_000:.2f}M)')
+    print(f'Total (with backbone + Mesh-VQVAE): {total_params_with_backbone:,} ({total_params_with_backbone/1_000_000:.2f}M)')
+    print(f'单次推理平均时间: {avg_inference_time:.4f}s')
+    print(f'V2V误差: {v2v_result:.2f}mm')
+    print(f'=========================================')
 
     print('\nEvaluation results saved in:')
     print(f'  {trainer.follow.path_samples}')

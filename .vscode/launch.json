@@ -5,6 +5,7 @@
     "version": "0.2.0",
     "configurations": [
 
+
         
         // screen -S rotate_bedlam
         // screen -R train_BL
@@ -23,6 +24,15 @@
             "program": "${workspaceFolder}/demo.py",
             "console": "integratedTerminal"
         },
+        // # 置信度可视化
+        // python demo_generate.py --mode confidence_vis --steps 50 --temp 1.0
+
+        // # 步骤可视化（需要渲染模块）
+        // python demo_generate.py --mode step_vis --steps 5 --temp 1.0 --sample_idx 0
+
+        // # 多样本可视化（需要渲染模块）
+        // python demo_generate.py --mode samples_vis --steps 5 --temp 1.0 --sample_size 10
+
         // demo迭代式
         {
             // python demo.py checkpoint.model_path=checkpoint/CVQMAE/mega_hrnet demo.input_path=demo_data/input/3dpw_test demo.output_path=demo_data/output
@@ -35,6 +45,20 @@
                 "demo.output_path=demo_data/demo_out_gen/test_step",
                 "+nb_steps=5",
                 "+gen_temp=3.0"
+            ],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Python 调试程序: Demo VQDiffusion",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/demo_vqdiffusion.py",
+            "args": [
+                // "--input_path", "demo_data/input/ssp_3d",
+                // "--output_path", "demo_data/output_vqd/ssp_3d",
+                // "--checkpoint", "checkpoint/CVQDIFFUSION/2026-03-13/15-31/model_best_loss"
+                "+input_path=demo_data/lspet",
+                "+output_path=demo_data/lspet",
             ],
             "console": "integratedTerminal"
         },
@@ -80,18 +104,6 @@
                 "--mesh_folder", "./data/data_images/fat4/mesh"
             ],
             "cwd": "/home/zzb/pydata/recons/CameraHMR",
-            "console": "integratedTerminal"
-        },
-        {
-            "name": "Python 调试程序: Demo VQDiffusion",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/demo_vqdiffusion.py",
-            "args": [
-                "--input_path", "demo_data/input/3dpw",
-                "--output_path", "demo_data/output_vqd/3dpw_overfit2",
-                "--checkpoint", "checkpoint/CVQDIFFUSION/2026-03-13/15-31/model_best_loss"
-            ],
             "console": "integratedTerminal"
         },
         {

@@ -4,7 +4,7 @@ from mega import (
     MixedDataset,
     set_seed,
     hrnet_w48,
-    # create_backbone,
+    vit,
 )
 import mesh_vq_vae
 import hydra
@@ -47,7 +47,7 @@ def main(cfg: DictConfig):
         cfg.validation_data.file,
         augment=False,
         flip=False,
-        proportion=0.5,
+        proportion=0.1,
     )
 
     """ Backbone """
@@ -63,11 +63,16 @@ def main(cfg: DictConfig):
             downsample=True,
             use_conv=True,
         )
+    elif cfg.backbone.type == "vit":
+        pretrained_ckpt_path = cfg.backbone.pretrained
+        backbone = vit()
+        if pretrained_ckpt_path:
+            backbone.load_state_dict(
+                torch.load(pretrained_ckpt_path, map_location="cpu")["state_dict"]
+            )
     else:
-        backbone = create_backbone(cfg)
-        backbone.load_state_dict(
-            torch.load(cfg.backbone.pretrained, map_location="cpu")["state_dict"]
-        )
+        raise ValueError(f"Unsupported backbone type: {cfg.backbone.type}. "
+                         f"Supported types are: 'resnet', 'hrnet', 'vit'.")
 
     """ ConvMesh VQVAE model """
     convmesh_model = mesh_vq_vae.FullyConvAE(cfg.modelconv, test_mode=True)
@@ -89,7 +94,19 @@ def main(cfg: DictConfig):
     )
     # Load the VQMAE pretrained on motion capture data
     resume_path = OmegaConf.select(cfg, "resume.path", default="") or ""
-    mesh_regressor_ckpt = resume_path if resume_path else "checkpoint/CVQMAE/mega_hrnet"
+    if resume_path:
+        mesh_regressor_ckpt = resume_path
+    else:
+        # 根据backbone类型选择对应的预训练权重
+        backbone_type = cfg.backbone.type
+        if backbone_type == "vit":
+            mesh_regressor_ckpt = "checkpoint/CVQMAE/mega_vit"
+        elif backbone_type == "hrnet":
+            mesh_regressor_ckpt = "checkpoint/CVQMAE/mega_hrnet"
+        elif backbone_type == "resnet":
+            mesh_regressor_ckpt = "checkpoint/CVQMAE/mega_resnet"
+        else:
+            raise ValueError(f"Unsupported backbone type for pretrained weights: {backbone_type}")
     mesh_regressor.load(mesh_regressor_ckpt)  # checkpoint/VQMAE/mega_pretrained
     print(f"Regressor: {pytorch_total_params}")
 
@@ -99,6 +116,7 @@ def main(cfg: DictConfig):
     J_regressor_24 = torch.from_numpy(np.load("body_models/J_regressor_24.npy")).float()
 
     """ Training """
+    vit_backbone = (cfg.backbone.type == "vit")
     pretrain_mesh_regressor = CVQMAE_Train(
         mesh_regressor,
         mesh_vqvae,
@@ -108,6 +126,7 @@ def main(cfg: DictConfig):
         faces=torch.from_numpy(ref_bm["f"].astype(np.int32)),
         joints_regressor=J_regressor,
         joints_regressor_smpl=J_regressor_24,
+        vit_backbone=vit_backbone,
     )
 
     pretrain_mesh_regressor.fit()

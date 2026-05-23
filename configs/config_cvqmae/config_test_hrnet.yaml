@@ -2,7 +2,7 @@ train:
   batch: 4
   lr: 1e-3
   device: 'cuda'
-  total_epoch: 200
+  total_epoch: 117
   workers: 8
   weight_decay: 0.05
   warmup_epoch: 20
@@ -17,7 +17,7 @@ vqvaemesh:
   
 
 modelconv:
-  batch: 4
+  batch: 100
   connection_folder: body_models/ConnectionMatrices/
   initial_connection_fn: body_models/ConnectionMatrices/_pool0.npy
   connection_layer_lst: ["pool0", "pool1", "pool2","pool3", "pool4", "pool5", "pool6","unpool6", "unpool5","unpool4","unpool3","unpool2","unpool1", "unpool0"]
@@ -60,13 +60,17 @@ validation_data:
   file: 'configs/config_cvqmae/3dpw_occ_100.txt'
 
 test_data:
-  file: 'configs/config_cvqmae/3dpw_test.txt'
+  file: 'configs/config_cvqdiffusion/emdb_test.txt'
+  # file: 'configs/config_cvqmae/3dpw_test.txt'
   # file: 'configs/config_cvqdiffusion/emdb_train_100.txt'
   # file: 'configs/config_cvqmae/3dpw_occ.txt'
   # file: 'configs/config_cvqmae/3dpw_occ_100.txt'
+  # file: 'configs/config_cvqdiffusion/lspet_train.txt'
 
 # 可选：从已有 checkpoint 恢复（用于 mesh_regressor.load）
 resume:
-  path: 'checkpoint/CVQMAE/2026-3-17/17-24/model_checkpoint'           # 留空表示使用默认预训练: checkpoint/CVQMAE/mega_hrnet
+  # path: 'checkpoint/CVQMAE/2026-3-17/17-24/model_checkpoint'           # 留空表示使用默认预训练: checkpoint/CVQMAE/mega_hrnet
+  # path: 'checkpoint/CVQMAE/mega_hrnet'           # 留空表示使用默认预训练: checkpoint/CVQMAE/mega_hrnet
+  path: 'checkpoint/CVQDIFFUSION/2026-05-04/11-12/model_best_loss'           # 留空表示使用默认预训练: checkpoint/CVQMAE/mega_hrnet
   optimizer: false
 
