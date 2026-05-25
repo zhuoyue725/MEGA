@@ -2,6 +2,7 @@ from torch.utils.data import DataLoader, Dataset
 import torch
 from tqdm import tqdm
 import numpy as np
+import time
 from ...base import Train
 from ...model import CVQMAE
 from mesh_vq_vae import MeshVQVAE, get_colors_from_diff_pc
@@ -141,6 +142,14 @@ class CVQMAE_Train(Train):
         self.criterion = torch.nn.CrossEntropyLoss(reduction="mean")
         self.mse = torch.nn.MSELoss(reduction="mean")
 
+        """ Loss Weights """
+        self.loss_weights = config_training.get("loss_weights", {})
+        self.weight_cross_entropy = self.loss_weights.get("cross_entropy", 1.0)
+        self.weight_rotation = self.loss_weights.get("rotation", 1.0)
+        self.weight_reprojection = self.loss_weights.get("reprojection", 1.0)
+
+        print(f"Loss weights - Cross Entropy: {self.weight_cross_entropy}, Rotation: {self.weight_rotation}, Reprojection: {self.weight_reprojection}")
+
         """ Config """
         self.config_training = config_training
         self.load_epoch = 0
@@ -217,34 +226,35 @@ class CVQMAE_Train(Train):
             )
             if not torch.isnan(cross_entropy):
                 self.train_cross.append(cross_entropy.item())
-                loss += cross_entropy
+                loss += self.weight_cross_entropy * cross_entropy
 
             rot_loss = self.mse(
                 rotmat,
                 axis_angle_to_matrix(data["rotation"]),
             ).mean()
             self.train_rot.append(rot_loss.item())
-            loss += rot_loss
+            loss += self.weight_rotation * rot_loss
 
-            is_3dpw = data["is_3dpw"] == True
-            not_3dpw = data["is_3dpw"] == False
-            reproj_loss = 0
-            if is_3dpw.any(): # 3DPW/EMDB/BEDLAM
-                reproj_loss += reprojection_loss(
-                    data["j2d"][is_3dpw][:, :, :2].to(torch.float32), # [:, :, :2]
-                    pred_mesh[is_3dpw],
-                    pred_cam[is_3dpw],
-                    self.joints_reg_smpl,
-                )
-            if not_3dpw.any():
-                reproj_loss += reprojection_loss_conf(
-                    data["j2d"][not_3dpw],
-                    pred_mesh[not_3dpw],
-                    pred_cam[not_3dpw],
-                    self.joints_reg,
-                )
+            reproj_loss = reprojection_loss_conf24(
+                data["j2d"][:].to(torch.float32),
+                pred_mesh[:],
+                pred_cam[:].cpu(),
+                self.joints_reg_smpl,
+            )
+
+            # reproj_loss = reprojection_loss_conf24_vis(
+            #     data["j2d"][:].to(torch.float32),
+            #     pred_mesh[:],
+            #     pred_cam[:].cpu(),
+            #     self.joints_reg_smpl,
+            #     vis_path=f"{self.follow.path_samples_train}/reproj_vis",
+            #     epoch=epoch,
+            #     step_count=self.step_count,
+            #     raw_img=data["raw_img"].cpu().numpy().transpose(0, 2, 3, 1)
+            # )
+
             self.train_2d.append(reproj_loss.item())
-            loss += reproj_loss
+            loss += self.weight_reprojection * reproj_loss
 
             loss.backward()
             self.optimizer.step()
@@ -306,6 +316,7 @@ class CVQMAE_Train(Train):
                 loss=mean(self.val_loss[-len(self.validation_loader) :]),
                 pampjpe=mean(self.val_pampjpe[-len(self.validation_loader) :]),
                 v2v=mean(self.val_v2v[-len(self.validation_loader) :]),
+                loss_2d=mean(self.val_2d[-len(self.validation_loader) :]),
             )
             self.follow(
                 epoch=e,
@@ -498,34 +509,23 @@ class CVQMAE_Train(Train):
             )
             if not torch.isnan(cross_entropy):
                 self.val_cross.append(cross_entropy.item())
-                loss += cross_entropy
+                loss += self.weight_cross_entropy * cross_entropy
 
             rot_loss = self.mse(
                 rotmat,
                 axis_angle_to_matrix(data["rotation"]),
             ).mean()
             self.val_rot.append(rot_loss.item())
-            loss += rot_loss
+            loss += self.weight_rotation * rot_loss
 
-            is_3dpw = data["is_3dpw"] == True
-            not_3dpw = data["is_3dpw"] == False
-            reproj_loss = 0
-            if is_3dpw.any():
-                reproj_loss += reprojection_loss(
-                    data["j2d"][is_3dpw][:, :, :2].to(torch.float32),
-                    pred_mesh[is_3dpw],
-                    pred_cam[is_3dpw],
-                    self.joints_reg_smpl,
-                )
-            if not_3dpw.any():
-                reproj_loss += reprojection_loss_conf(
-                    data["j2d"][not_3dpw],
-                    pred_mesh[not_3dpw],
-                    pred_cam[not_3dpw],
-                    self.joints_reg,
-                )
+            reproj_loss = reprojection_loss_conf24(
+                data["j2d"][:].to(torch.float32),
+                pred_mesh[:],
+                pred_cam[:].cpu(),
+                self.joints_reg_smpl,
+            )
             self.val_2d.append(reproj_loss.item())
-            loss += reproj_loss
+            loss += self.weight_reprojection * reproj_loss
 
             losses.append(loss.item())
             self.val_loss.append(loss.item())
@@ -569,7 +569,18 @@ class CVQMAE_Train(Train):
 
         return losses
 
-    def eval_deterministic(self, visualize=True):
+    def eval_deterministic(self, visualize=True, vis_all_sample=False, sample_size: int = 1):
+        """
+        评估验证集，可选择保存每个样本的重投影结果。
+
+        Args:
+            visualize: 是否保存可视化结果
+            vis_all_sample: 是否对每个样本单独保存重投影图像
+            sample_size: 如果不保存全部，保存前 sample_size 个样本
+
+        Returns:
+            tuple: (v2v误差, 平均单次推理时间(秒))
+        """
         self.model.eval()
         with torch.no_grad():
             lpampjpe = []
@@ -577,6 +588,11 @@ class CVQMAE_Train(Train):
             lv2v = []
             limgname = []
             count = 0
+            sample_idx = 0  # 全局样本计数器
+
+            # 用于记录推理时间
+            inference_times = []
+
             for data in tqdm(iter(self.validation_loader)):
                 mesh = data["local_mesh"]
                 mesh = mesh.to(self.device)
@@ -584,6 +600,8 @@ class CVQMAE_Train(Train):
                 img_features = data["img"].to(self.device)
                 limgname.extend(data["imgname"])
 
+                # 测量前向传播时间 (第601-603行)
+                start_time = time.perf_counter()
                 if self.vit_backbone:
                     predicted_indices, pred_rot, pred_cam, mask = self.model(
                         indices, img_features[:, :, :, 32:-32], fixed_ratio=1
@@ -592,6 +610,9 @@ class CVQMAE_Train(Train):
                     predicted_indices, pred_rot, pred_cam, mask = self.model(
                         indices, img_features, fixed_ratio=1
                     )
+                end_time = time.perf_counter()
+                inference_time = end_time - start_time
+                inference_times.append(inference_time)
 
                 _, mesh_indices = torch.max(predicted_indices.data, -1)
                 mesh_indices = (
@@ -642,6 +663,46 @@ class CVQMAE_Train(Train):
                         save=f"{self.follow.path_samples}/{count}_reconstructed.png",
                     )
 
+                    # 保存每个样本的重投影结果
+                    if vis_all_sample:
+                        B = pred_mesh.shape[0]
+                        for i in range(B):
+                            pred_mesh_i = pred_mesh[i:i+1].cpu().numpy()
+                            pred_cam_i = pred_cam[i:i+1].cpu().numpy()
+                            raw_img_i = raw_img[i:i+1]
+
+                            reproj_save_path = f"{self.follow.path_test_sample}/{sample_idx}.png" # _reprojection
+                            # self.plot_reproj_(
+                            #     raw_img_i,
+                            #     pred_mesh_i,
+                            #     pred_cam_i,
+                            #     show=False,
+                            #     save=reproj_save_path,
+                            # )
+                            self.plot_reproj_samples_(
+                                raw_img_i,
+                                pred_mesh_i,
+                                pred_cam_i,
+                                save=reproj_save_path,
+                            )
+                            sample_idx += 1
+
+            # 计算并打印推理时间统计
+            if inference_times:
+                avg_inference_time = mean(inference_times)
+                min_inference_time = min(inference_times)
+                max_inference_time = max(inference_times)
+                batch_size = len(inference_times)
+
+                print(f"\n======= 推理时间统计 =======")
+                print(f"总batch数: {batch_size}")
+                print(f"单次前向传播平均时间: {avg_inference_time:.4f}s")
+                print(f"单次前向传播最短时间: {min_inference_time:.4f}s")
+                print(f"单次前向传播最长时间: {max_inference_time:.4f}s")
+                print(f"=================================\n")
+            else:
+                print("警告: 未记录到推理时间数据")
+
             print(f"V2V: {mean(lv2v)}, MPJPE: {mean(lmpjpe)}, PAMPJPE {mean(lpampjpe)}")
 
             dict_results = {
@@ -653,7 +714,125 @@ class CVQMAE_Train(Train):
             df = pd.DataFrame(dict_results)
             df.to_csv(f"{self.follow.path}/results.csv", index=False)
 
-        return v2v
+        # 返回推理时间信息
+        if inference_times:
+            avg_time = mean(inference_times) if inference_times else 0
+            avg_v2v = mean(lv2v) if lv2v else 0
+            return avg_v2v, avg_time
+        else:
+            avg_v2v = mean(lv2v) if lv2v else 0
+            return avg_v2v, 0
+    def plot_reproj_samples_(
+        self,
+        images,
+        meshes,
+        cameras,
+        save: str = None,
+    ):
+        """
+        保存多个 sample 的重投影图像，横向拼接后保存为一张图。
+        
+        Args:
+            images: [S, H, W, 3] 原始图像（重复 S 次）
+            meshes: [S, V, 3] 预测的网格
+            cameras: [S, 3] 相机参数
+            save: 最终保存路径
+        """
+        import os
+        from PIL import Image
+        
+        rendered_img = []
+        render_reproj = PyRender_Renderer(faces=self.f)
+
+        for img in images:
+            if save is not None:
+                # 1. 如果 img 是 Tensor [C, H, W]，转换为 Numpy [H, W, C]
+                if hasattr(img, 'permute'):
+                    img = img.permute(1, 2, 0).detach().cpu().numpy()
+                
+                # 2. 缩放至 224x224
+                img_224 = cv2.resize(img, (224, 224))
+                
+                # 3. 确保数据类型为 uint8 (0-255)
+                if img_224.max() <= 1.0:
+                    img_224 = (img_224 * 255).astype(np.uint8)
+                else:
+                    img_224 = img_224.astype(np.uint8)
+                
+                # 4. 保存图片 (注意：OpenCV 需要 BGR 格式)
+                cv2.imwrite(save, cv2.cvtColor(img_224, cv2.COLOR_RGB2BGR))
+                break # 每次调用只保存当前这一个 sample
+
+        # 逐个保存每个 sample 的重投影图像
+        # temp_files = []
+        # for i, (img, vertices, camera) in enumerate(zip(images, meshes, cameras)):
+        #     rendered = visualize_reconstruction_pyrender(
+        #         img, vertices, camera, render_reproj
+        #     )
+        #     rendered_img.append(rendered)
+            
+        #     # 保存临时文件
+        #     if save is not None:
+        #         import cv2
+        #         temp_path = save # .replace('.png', f'_sample_{i}.png')
+        #         temp_files.append(temp_path)
+
+        #         img_to_save = rendered[0] if rendered.shape[0] == 1 else rendered
+        #         img_to_save = (img_to_save * 255).astype(np.uint8) if img_to_save.max() <= 1.0 else img_to_save.astype(np.uint8)
+        #         cv2.imwrite(temp_path, cv2.cvtColor(img_to_save, cv2.COLOR_RGB2BGR))
+        
+        # 横向拼接所有图像
+        # if save is not None and temp_files:
+        #     pil_images = [Image.open(f) for f in temp_files]
+        #     total_width = sum(img.width for img in pil_images)
+        #     max_height = max(img.height for img in pil_images)
+            
+        #     combined = Image.new('RGB', (total_width, max_height))
+        #     x_offset = 0
+        #     for img in pil_images:
+        #         combined.paste(img, (x_offset, 0))
+        #         x_offset += img.width
+            
+        #     combined.save(save)
+            
+        #     # 删除临时文件
+        #     for temp_path in temp_files:
+        #         if os.path.exists(temp_path):
+        #             os.remove(temp_path)
+
+    def restore_sample_images(self, output_dir: str = 'restore_samples', max_samples: int = None):
+        """遍历 validation_loader，保存每个样本的 data['img']（从0开始命名）。
+
+        Args:
+            output_dir: 输出目录路径
+            max_samples: 最大保存样本数量，None 表示保存全部
+        """
+        os.makedirs(output_dir, exist_ok=True)
+
+        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+        std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+
+        idx = 0
+        for data in tqdm(self.validation_loader, desc='restore_sample_images'):
+            imgs = data['img']  # [B, 3, H, W]
+            if isinstance(imgs, torch.Tensor):
+                imgs = imgs.detach().cpu()
+
+            for b in range(imgs.shape[0]):
+                if max_samples is not None and idx >= max_samples:
+                    return
+
+                img = imgs[b].numpy() if isinstance(imgs, torch.Tensor) else imgs[b]
+                img = np.transpose(img, (1, 2, 0))
+                img = (img * std + mean).clip(0.0, 1.0)
+                img = (img * 255.0).astype(np.uint8)
+                img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+
+                save_path = os.path.join(output_dir, f'{idx}.png')
+                cv2.imwrite(save_path, img)
+                idx += 1
+
+        return
 
     def eval_stochastic(self, steps=5, temp=1, sample_size=25, visualise=True):
         self.model.eval()
@@ -663,12 +842,17 @@ class CVQMAE_Train(Train):
             lv2v = []
             limgname = []
             count = 0
+            # 用于记录推理时间
+            inference_times = []
+
             for data in tqdm(iter(self.validation_loader)):
                 limgname.append(data["imgname"])
 
                 img_features = data["img"].to(self.device)
                 img_features = img_features.repeat(sample_size, 1, 1, 1)
 
+                # 测量前向传播时间
+                start_time = time.perf_counter()
                 if self.vit_backbone:
                     mesh_indices, pred_rot, _ = self.model.generate(
                         img_features[:, :, :, 32:-32], nb_steps=steps, gen_temp=temp
@@ -677,6 +861,9 @@ class CVQMAE_Train(Train):
                     mesh_indices, pred_rot, _ = self.model.generate(
                         img_features, nb_steps=steps, gen_temp=temp
                     )
+                end_time = time.perf_counter()
+                inference_time = end_time - start_time
+                inference_times.append(inference_time)
                 mesh_canonical = self.vqvae.decode(mesh_indices).cpu()
                 rotmat = rotation_6d_to_matrix(pred_rot).cpu()
                 pred_mesh = (rotmat @ mesh_canonical.transpose(2, 1)).transpose(2, 1)
@@ -771,6 +958,22 @@ class CVQMAE_Train(Train):
                         rot=True,
                     )
 
+            # 计算并打印推理时间统计
+            if inference_times:
+                avg_inference_time = mean(inference_times)
+                min_inference_time = min(inference_times)
+                max_inference_time = max(inference_times)
+                batch_size = len(inference_times)
+
+                print(f"\n======= 推理时间统计 =======")
+                print(f"总batch数: {batch_size}")
+                print(f"单次前向传播平均时间: {avg_inference_time:.4f}s")
+                print(f"单次前向传播最短时间: {min_inference_time:.4f}s")
+                print(f"单次前向传播最长时间: {max_inference_time:.4f}s")
+                print(f"=================================\n")
+            else:
+                print("警告: 未记录到推理时间数据")
+
             print(f"V2V: {mean(lv2v)}, MPJPE: {mean(lmpjpe)}, PAMPJPE {mean(lpampjpe)}")
 
             dict_results = {
@@ -781,6 +984,15 @@ class CVQMAE_Train(Train):
             }
             df = pd.DataFrame(dict_results)
             df.to_csv(f"{self.follow.path}/results.csv", index=False)
+
+            # 返回推理时间信息
+            if inference_times:
+                avg_time = mean(inference_times) if inference_times else 0
+                avg_v2v = mean(lv2v) if lv2v else 0
+                return avg_v2v, avg_time
+            else:
+                avg_v2v = mean(lv2v) if lv2v else 0
+                return avg_v2v, 0
 
     def eval_stochastic_visualize_step(self, steps=5, temp=1, sample_size=1, max_samples=10, sample_idx=0):
         """

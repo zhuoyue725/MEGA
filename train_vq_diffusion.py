@@ -27,7 +27,7 @@ from omegaconf import DictConfig, OmegaConf
 import mesh_vq_vae
 
 from mega import set_seed, hrnet_w48, MixedDataset
-from mega.model.cvqdiffusion import CVQDiffusion
+from mega.model.cvqdiffusion import CVQDiffusion, MultiModalConditionEncoder
 from mega.train.train_cvqdiffusion.train_class import CVQDiffusion_Train
 
 
@@ -85,6 +85,49 @@ def main(cfg: DictConfig):
     )
     total_params = sum(p.numel() for p in model.parameters())
     print(f'CVQDiffusion params: {total_params:,}')
+
+    # ---------------------------------------------------------------- #
+    #  多模态条件编码器（热插拔）                                         #
+    # ---------------------------------------------------------------- #
+    mm_cfg = cfg.get('multi_modal', {})
+    if mm_cfg.get('enabled', False):
+        mm_encoder = MultiModalConditionEncoder(
+            backbone_feat_dim=model_cfg.backbone_feat_dim,
+            cond_emb_dim=model_cfg.cond_emb_dim,
+            cond_len=model_cfg.cond_len,
+            normal_patch_size=mm_cfg.get('normal_patch_size', 32),
+            normal_vit_dim=mm_cfg.get('normal_vit_dim', 256),
+            normal_vit_depth=mm_cfg.get('normal_vit_depth', 4),
+            normal_vit_heads=mm_cfg.get('normal_vit_heads', 4),
+            kp_embed_dim=mm_cfg.get('kp_embed_dim', 1024),
+            kp_depth=mm_cfg.get('kp_depth', 2),
+            kp_heads=mm_cfg.get('kp_heads', 8),
+            uce_depth=mm_cfg.get('uce_depth', 4),
+            uce_heads=mm_cfg.get('uce_heads', 8),
+        )
+        print(f'MultiModalConditionEncoder enabled, params: {sum(p.numel() for p in mm_encoder.parameters()):,}')
+        # 替换模型的 cond_emb/rotcam_head 为多模态编码器
+        model = CVQDiffusion(
+            backbone=backbone,
+            backbone_feat_dim=model_cfg.backbone_feat_dim,
+            cond_emb_dim=model_cfg.cond_emb_dim,
+            num_tok=model_cfg.num_tok,
+            seq_len=model_cfg.seq_len,
+            n_emb=model_cfg.n_emb,
+            cond_dim=model_cfg.cond_dim,
+            cond_len=model_cfg.cond_len,
+            n_head=model_cfg.n_head,
+            n_layer=model_cfg.n_layer,
+            diff_step=model_cfg.diff_step,
+            auxiliary_loss_weight=model_cfg.auxiliary_loss_weight,
+            adaptive_auxiliary_loss=model_cfg.adaptive_auxiliary_loss,
+            mask_weight=list(model_cfg.mask_weight),
+            multi_modal_encoder=mm_encoder,
+        )
+        total_params = sum(p.numel() for p in model.parameters())
+        print(f'CVQDiffusion (multi-modal) params: {total_params:,}')
+    else:
+        print('Multi-modal encoder disabled, using RGB-only pipeline')
 
     # ---------------------------------------------------------------- #
     #  MeshVQVAE（用于动态获取 codebook indices，与 train_mega.py 一致）#

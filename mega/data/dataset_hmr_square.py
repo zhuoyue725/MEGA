@@ -220,6 +220,8 @@ class DatasetHMRSquare(Dataset):
             img_path = f"datasets/mpi_inf_3dhp/{imgname}"
         if "lspet" in self.dataset_file[:-4]:
             img_path = f"datasets/hr-lspet/images/{imgname}"
+        if "ssp_3d" in self.dataset_file[:-4]:
+            img_path = f"datasets/ssp_3d/images/{imgname}"
         if "BEDLAM" in self.dataset_file[:-4]:
             is_3dpw = True
             is_bedlam = True

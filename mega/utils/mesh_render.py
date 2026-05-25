@@ -31,7 +31,9 @@ def renderer(vertices, faces, device, colors=None, rot=True):
     )
     # create mesh from vertices
     if colors is None:
-        verts_rgb = torch.ones_like(vertices)  # (1, V, 3)
+        # LIGHT_BLUE from demo.py: (0.65098039, 0.74117647, 0.85882353)
+        light_blue = torch.tensor([0.65098039, 0.74117647, 0.85882353], device=vertices.device)
+        verts_rgb = light_blue.expand_as(vertices)  # (1, V, 3)
     else:
         verts_rgb = colors
     textures = TexturesVertex(verts_features=verts_rgb.to(device))

@@ -48,6 +48,9 @@ class CVQDiffusion(nn.Module):
         2. rearrange + cond_emb + pos_emb -> [B, 49, 1024]  (condition embedding)
         3. DiffusionTransformer(content_token=img,
                                 condition_embed_token=cond_emb)
+
+    When `multi_modal_encoder` is provided, steps 2 and the rotcam regression
+    are delegated to the encoder, which may fuse normal maps and keypoints.
     """
 
     # ------------------------------------------------------------------ #
@@ -81,6 +84,8 @@ class CVQDiffusion(nn.Module):
         auxiliary_loss_weight: float = 5e-4,
         adaptive_auxiliary_loss: bool = True,
         mask_weight: list = None,
+        # hot-pluggable multi-modal encoder (default None = original RGB-only)
+        multi_modal_encoder: nn.Module = None,
     ):
         super().__init__()
 
@@ -135,6 +140,9 @@ class CVQDiffusion(nn.Module):
                 'mlp_hidden_times':     4,
             },
         }
+        # ---- hot-pluggable multi-modal encoder (None = RGB-only) ----
+        self.multi_modal_encoder = multi_modal_encoder
+
         self.diff_step = diff_step
         self.diffusion = DiffusionTransformer(
             content_emb_config=content_emb_cfg,
@@ -172,10 +180,14 @@ class CVQDiffusion(nn.Module):
         return_loss: bool = True,
         return_logits: bool = True,
         is_train: bool = True,
+        normal_map: torch.Tensor = None,
+        keypoints: torch.Tensor = None,
     ):
         """
         img  : [B, 54]           – content token indices (long)
         cond : [B, 3, 224, 224]  – raw image
+        normal_map : [B, 3, 224, 224] or None – surface normal map
+        keypoints  : [B, J, 3] or None         – 2D keypoints with confidence
 
         Returns dict with keys 'loss' (if return_loss), 'logits' (if return_logits),
         'pred_rot' [B, 6] (6D rotation representation), and 'pred_cam' [B, 3] (camera parameters).
@@ -183,17 +195,21 @@ class CVQDiffusion(nn.Module):
         # 1. backbone: [B, 3, 224, 224] -> [B, 720, 7, 7]
         cond_feat = self.backbone(cond)          # [B, 720, 7, 7]
 
-        # 2. rotation and camera regression from pooled backbone feature
-        #    avg_pool: [B, 720, 7, 7] -> [B, 720, 1, 1] -> [B, 1, 720]
-        cond_single = self.avg_pool(cond_feat).view(cond_feat.size(0), 1, -1)  # [B, 1, 720]
-        rotcam_feature = self.rotcam_head(cond_single)                         # [B, 1, cond_emb_dim]
-        pred_rot = self.rot_predictor(rotcam_feature).view(-1, 6)              # [B, 6]
-        pred_cam = self.cam_predictor(rotcam_feature).view(-1, 3)              # [B, 3]
+        # 2. multi-modal encoding (if available) or fallback to RGB-only pipeline
+        if self.multi_modal_encoder is not None:
+            cond_emb, pred_rot, pred_cam = self.multi_modal_encoder(
+                cond_feat, normal_map=normal_map, keypoints=keypoints
+            )
+        else:
+            # rotation and camera regression from pooled backbone feature
+            cond_single = self.avg_pool(cond_feat).view(cond_feat.size(0), 1, -1)
+            rotcam_feature = self.rotcam_head(cond_single)
+            pred_rot = self.rot_predictor(rotcam_feature).view(-1, 6)
+            pred_cam = self.cam_predictor(rotcam_feature).view(-1, 3)
+            # condition embedding: [B, 720, 7, 7] -> [B, 49, 1024]
+            cond_emb = self._encode_cond(cond_feat)
 
-        # 3. condition embedding: [B, 720, 7, 7] -> [B, 49, 1024]
-        cond_emb = self._encode_cond(cond_feat)  # [B, 49, 1024]
-
-        # 4. DiffusionTransformer forward
+        # 3. DiffusionTransformer forward
         out = self.diffusion(
             {
                 'content_token':          img,
@@ -220,25 +236,33 @@ class CVQDiffusion(nn.Module):
         batch_size: int = 1,
         content_token=None,
         save_steps=None,
+        normal_map: torch.Tensor = None,
+        keypoints: torch.Tensor = None,
     ):
         """
         cond : [B, 3, 224, 224]
+        normal_map : [B, 3, 224, 224] or None
+        keypoints  : [B, J, 3] or None
         save_steps : list of int or None，指定要保存的扩散步数。
                     如果提供，则调用 diffusion.sample_with_intermediate()
                     例如 [20, 40, 60, 80]
-        
+
         Returns sampled content tokens, pred_rot [B, 6], pred_cam [B, 3], and optionally logits.
         如果 save_steps 不为 None，还会返回 intermediate_tokens 和 intermediate_logits。
         """
         cond_feat = self.backbone(cond)          # [B, 720, 7, 7]
 
-        # rotation and camera regression
-        cond_single = self.avg_pool(cond_feat).view(cond_feat.size(0), 1, -1)  # [B, 1, 720]
-        rotcam_feature = self.rotcam_head(cond_single)                         # [B, 1, cond_emb_dim]
-        pred_rot = self.rot_predictor(rotcam_feature).view(-1, 6)              # [B, 6]
-        pred_cam = self.cam_predictor(rotcam_feature).view(-1, 3)              # [B, 3]
-
-        cond_emb  = self._encode_cond(cond_feat) # [B, 49, 1024]
+        # multi-modal encoding (if available) or fallback to RGB-only pipeline
+        if self.multi_modal_encoder is not None:
+            cond_emb, pred_rot, pred_cam = self.multi_modal_encoder(
+                cond_feat, normal_map=normal_map, keypoints=keypoints
+            )
+        else:
+            cond_single = self.avg_pool(cond_feat).view(cond_feat.size(0), 1, -1)
+            rotcam_feature = self.rotcam_head(cond_single)
+            pred_rot = self.rot_predictor(rotcam_feature).view(-1, 6)
+            pred_cam = self.cam_predictor(rotcam_feature).view(-1, 3)
+            cond_emb  = self._encode_cond(cond_feat)
 
         # 如果提供了 save_steps，调用 sample_with_intermediate()
         if save_steps is not None:

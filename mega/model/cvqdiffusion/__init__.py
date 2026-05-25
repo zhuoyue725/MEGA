@@ -1,1 +1,2 @@
 from .cvqdiffusion import CVQDiffusion
+from .multi_modal_encoder import MultiModalConditionEncoder

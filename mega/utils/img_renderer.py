@@ -123,9 +123,17 @@ class PyRender_Renderer:
         rgb, depth = self.renderer.render(self.scene, flags=render_flags)
 
         valid_mask = (depth > 0)[:, :, np.newaxis]
-        background = np.ones((224, 224, 4)) * 150
-        background[:, :, :3] = img
-        output_img = rgb * valid_mask + (1 - valid_mask) * background
+
+        if rgb.shape[2] == 4:
+            # 只取 RGB 通道，忽略渲染的 alpha 通道
+            rgb_rgb = rgb[:, :, :3]
+        else:
+            rgb_rgb = rgb
+
+        # 直接覆盖 mesh 区域，其它区域保留原图像，不做透明度混合
+        img_orig = img.astype(np.uint8)
+        output_img = np.where(valid_mask, rgb_rgb, img_orig)
+
         image = output_img.astype(np.uint8)
 
         self.scene.remove_node(mesh_node)

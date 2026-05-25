@@ -10,6 +10,8 @@ import math
 import numpy as np
 import torch
 import torch.nn as nn
+import cv2
+import time
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 from statistics import mean
@@ -294,7 +296,8 @@ class CVQDiffusion_Train(Train):
 
             # ---- 损失：diffusion VB loss + rotation regression loss + reprojection loss ----
             out  = self.model(tokens, imgs,
-                              return_loss=True, return_logits=False)
+                              return_loss=True, return_logits=False,
+                              keypoints=data['j2d'].to(self.device))
             diff_loss = out['loss']
 
             # rotation loss: 6D pred -> rotation matrix vs GT axis-angle -> matrix
@@ -450,7 +453,8 @@ class CVQDiffusion_Train(Train):
                 )
 
                 out  = self.model(tokens, imgs,
-                                  return_loss=True, return_logits=False)
+                                  return_loss=True, return_logits=False,
+                                  keypoints=data['j2d'].to(self.device))
                 diff_loss = out['loss']
 
                 # rotation loss
@@ -575,6 +579,10 @@ class CVQDiffusion_Train(Train):
         指标：PA-MPJPE、MPJPE、V2V（mm），结果保存为 results.csv。
         可视化：前 sample_size 个预测网格的重投影结果（默认为 False），
         vis_all_sample=True 时直接对 batch 里每个样本单独绘图。
+
+        Returns:
+            avg_v2v: 平均V2V误差 (mm)
+            avg_inference_time: 平均单次推理时间 (秒)
         """
         self.model.eval()
         with torch.no_grad():
@@ -583,24 +591,30 @@ class CVQDiffusion_Train(Train):
             lv2v     = []
             limgname = []
             count    = 0
+            sample_idx = 0  # 全局样本计数器，从0开始连续递增
+            inference_times = []  # 记录每个batch的推理时间
 
             for data in tqdm(iter(self.validation_loader), desc='eval_deterministic'):
                 imgs = data['img'].to(self.device)           # [B, 3, 224, 224]
                 limgname.append(data['imgname'])
 
                 # 通过 diffusion 采样得到 content token
+                start_time = time.perf_counter()
                 sample_out  = self.model.sample(
                     imgs, filter_ratio=0.0, temperature=1.0
                 )
+                end_time = time.perf_counter()
+                inference_time = end_time - start_time
+                inference_times.append(inference_time)
                 pred_tokens = sample_out['content_token']            # [B, 54]
                 # 将 mask token (512) 映射为 0，因为 VQVAE codebook 范围是 0-511
                 pred_tokens_clipped = torch.clamp(pred_tokens, 0, 511)
                 mesh_canonical   = self.vqvae.decode(pred_tokens_clipped).cpu()   # [B, V, 3]
 
-                # pred_rot = sample_out['pred_rot']
-                # rotmat = rotation_6d_to_matrix(pred_rot).cpu()
-                # pred_mesh = (rotmat @ mesh_canonical.transpose(2, 1)).transpose(2, 1)
-                pred_mesh = data['mesh']
+                pred_rot = sample_out['pred_rot']
+                rotmat = rotation_6d_to_matrix(pred_rot).cpu()
+                pred_mesh = (rotmat @ mesh_canonical.transpose(2, 1)).transpose(2, 1)
+                # pred_mesh = data['mesh']
                 gt_mesh = data['mesh']   # [B, V, 3]，世界坐标系真值
 
                 if self.joints_reg is not None:
@@ -642,7 +656,7 @@ class CVQDiffusion_Train(Train):
 
                             reproj_save_path = (
                                 f'{self.follow.path_samples}/'
-                                f'eval_det_step{count}_sample{i}_reproj.png'
+                                f'{sample_idx}.png'
                             )
 
                             self.plot_reproj_samples_(
@@ -651,6 +665,7 @@ class CVQDiffusion_Train(Train):
                                 pred_cam_i,
                                 save=reproj_save_path,
                             )
+                            sample_idx += 1  # 递增全局样本索引
                     else:
                         num = min(sample_size, B)
                         if num > 0:
@@ -658,23 +673,31 @@ class CVQDiffusion_Train(Train):
                             pred_cam_sel = sample_out['pred_cam'][:num].cpu().numpy()
                             raw_img_sel = raw_img_all[:num]
 
-                            reproj_save_path = (
-                                f'{self.follow.path_samples}/'
-                                f'eval_det_step{self.step_count}_reproj_{count}.png'
-                            )
+                            for i in range(num):
+                                reproj_save_path = (
+                                    f'{self.follow.path_samples}/'
+                                    f'sample{sample_idx}_reproj.png'
+                                )
 
-                            self.plot_reproj_samples_(
-                                raw_img_sel,
-                                pred_mesh_sel,
-                                pred_cam_sel,
-                                save=reproj_save_path,
-                            )
+                                self.plot_reproj_samples_(
+                                    raw_img_sel[i:i+1],
+                                    pred_mesh_sel[i:i+1],
+                                    pred_cam_sel[i:i+1],
+                                    save=reproj_save_path,
+                                )
+                                sample_idx += 1  # 递增全局样本索引
+
+            avg_v2v = mean(lv2v)
+            avg_mpjpe = mean(lmpjpe)
+            avg_pampjpe = mean(lpampjpe)
+            avg_inference_time = mean(inference_times) if inference_times else 0.0
 
             print(
-                f'V2V: {mean(lv2v):.2f}  '
-                f'MPJPE: {mean(lmpjpe):.2f}  '
-                f'PA-MPJPE: {mean(lpampjpe):.2f}  (mm)'
+                f'V2V: {avg_v2v:.2f}  '
+                f'MPJPE: {avg_mpjpe:.2f}  '
+                f'PA-MPJPE: {avg_pampjpe:.2f}  (mm)'
             )
+            print(f'Average inference time per batch: {avg_inference_time:.4f}s')
 
             dict_results = {
                 'imgname':  limgname,
@@ -685,7 +708,38 @@ class CVQDiffusion_Train(Train):
             df = pd.DataFrame(dict_results)
             df.to_csv(f'{self.follow.path}/results.csv', index=False)
 
-        return lv2v
+        return avg_v2v, avg_inference_time
+
+    def restore_sample_images(self, output_dir: str = 'restore_samples', max_samples: int = None):
+        """遍历 validation_loader，保存每个样本的 data['img']（从0开始命名）。"""
+        import torchvision
+
+        os.makedirs(output_dir, exist_ok=True)
+
+        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+        std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+
+        idx = 0
+        for data in tqdm(self.validation_loader, desc='restore_sample_images'):
+            imgs = data['img']  # [B, 3, H, W]
+            if isinstance(imgs, torch.Tensor):
+                imgs = imgs.detach().cpu()
+
+            for b in range(imgs.shape[0]):
+                if max_samples is not None and idx >= max_samples:
+                    return
+
+                img = imgs[b].numpy() if isinstance(imgs, torch.Tensor) else imgs[b]
+                img = np.transpose(img, (1, 2, 0))
+                img = (img * std + mean).clip(0.0, 1.0)
+                img = (img * 255.0).astype(np.uint8)
+                img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+
+                save_path = os.path.join(output_dir, f'{idx}.png')
+                cv2.imwrite(save_path, img)
+                idx += 1
+
+        return
 
     # ---------------------------------------------------------------- #
     #  eval_stochastic                                                  #
@@ -1100,6 +1154,14 @@ class CVQDiffusion_Train(Train):
             else:
                 new_key = key
             adjusted_weights[new_key] = value
+
+        # 当使用 multi_modal_encoder 时，rotcam 权重在 multi_modal_encoder. 前缀下
+        if hasattr(self.model, 'multi_modal_encoder') and self.model.multi_modal_encoder is not None:
+            prefixed_weights = OrderedDict()
+            for key, value in adjusted_weights.items():
+                # cond_emb / pos_emb_cond / rotcam_head / rot_predictor / cam_predictor
+                prefixed_weights[f'multi_modal_encoder.{key}'] = value
+            adjusted_weights = prefixed_weights
         
         # 加载权重到模型（strict=False 允许只加载部分权重）
         missing_keys, unexpected_keys = self.model.load_state_dict(adjusted_weights, strict=False)

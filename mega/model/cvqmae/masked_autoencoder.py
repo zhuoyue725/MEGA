@@ -373,9 +373,9 @@ class CVQMAE(torch.nn.Module):
             if return_list:
                 probs = torch.nn.functional.softmax(logits, dim=-1) # 归一化
                 sampled_probs = torch.squeeze(torch.gather(probs, dim=-1, index=torch.unsqueeze(sampled_ids, -1)), -1) #[1, 54]归一化后的置信度
-                list_indices.append(sampled_probs) # 每个的置信度
+                # list_indices.append(sampled_probs) # 每个的置信度
                 # list_indices.append(sampled_ids) # 某个批次的无mask 索引
-                # list_indices.append(patches) # 索引带mask是0
+                list_indices.append(patches) # 索引带mask是0
 
         if return_list:
             return patches, predicted_rot, predicted_cam, list_indices
