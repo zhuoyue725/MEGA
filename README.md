@@ -1,6 +1,6 @@
 # MaskDiff-HMR: Masked Generative Diffusion for Human Mesh Recovery
 
-本仓库实现 **MaskDiff-HMR**（基于 CVQDiffusion 的人体网格重建），是在 [MEGA](https://github.com/g-fiche/MEGA) 框架基础上发展的条件式 VQ-Diffusion 模型。该方法将人体网格 token 化后，利用离散扩散模型以图像为条件从噪声中逐步重建人体姿态与形状。
+本仓库实现 **MaskDiff-HMR**（基于 CVQDiffusion 的人体网格重建），是一种条件式 VQ-Diffusion 模型。该方法将人体网格 token 化后，利用离散扩散模型以图像为条件从噪声中逐步重建人体姿态与形状。
 
 > 相关论文：[MEGA: Masked Generative Autoencoder for Human Mesh Recovery](https://g-fiche.github.io/research-pages/mega/) (CVPR 2025)
 
@@ -114,7 +114,7 @@ MEGA 是非参数化的，需要关节点回归矩阵来计算人体关节点位
 
 - **Mesh-VQ-VAE**：`checkpoint/MESH_VQVAE/mesh_vqvae_54`
 - **RotCam 权重**：`checkpoint/CVQMAE/rotcam_weights.pth`
-- **CVQDiffusion 条件扩散模型**：待补充
+- **CVQDiffusion 条件扩散模型**：`checkpoint/CVQDIFFUSION/2026-05-25/22-24-Train9/model_best_loss`
 
 下载后放置结构如下：
 

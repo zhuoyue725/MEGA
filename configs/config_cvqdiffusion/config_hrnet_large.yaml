@@ -55,8 +55,5 @@ test_data:
   file: 'configs/config_cvqdiffusion/emdb_test.txt'
 
 resume:
-  # path: 'checkpoint/CVQDIFFUSION/2026-05-25/13-21-Train7/model_best_loss'
-  # path: 'checkpoint/CVQDIFFUSION/2026-05-24/13-27-Train6/model_best_loss'
-  # path: 'checkpoint/CVQDIFFUSION/2026-05-25/17-41-Train8/model_best_loss'
   path: 'checkpoint/CVQDIFFUSION/2026-05-25/22-24-Train9/model_best_loss'
   optimizer: false
