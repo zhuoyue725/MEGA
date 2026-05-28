@@ -55,3 +55,30 @@ validation_data:
 test_data:
   file: 'configs/config_cvqmae/3dpw_test.txt'
 
+resume:
+  path: 'checkpoint/CVQMAE/mega_hrnet'
+  # path: 'checkpoint/CVQMAE/2026-3-31/23-34-3DPW-EMDB/model_checkpoint'
+  # path: 'checkpoint/CVQMAE/2026-3-31/23-34-3DPW-EMDB/model_best_loss'
+  # path: 'checkpoint/CVQMAE/2026-4-1/19-45/model_best_2d'
+  # path: 'checkpoint/CVQMAE/2026-4-1/21-3/model_best_2d'
+
+# demo_generate.py 参数
+mode: 'confidence_vis'
+# input_path: '/home/zzb/pydata/recons/MEGA/demo_data/input/3dpw_occ'
+input_path: '/home/zzb/pydata/recons/MEGA/demo_data/input/dataset_samples/emdb_occ_mesh'
+# input_path: '/home/zzb/pydata/recons/MEGA/demo_data/input/dataset_samples/emdb_occ2'
+output_dir: '/home/zzb/pydata/recons/MEGA/demo_out/step_vis/emdb_occ_s5_mesh_t1'
+steps: 5
+temp: 1.0
+sample_size: 10
+max_samples: null
+sample_idx: 0
+
+# 置信度可视化
+# python demo_generate.py --mode confidence_vis --steps 50 --temp 1.0
+
+# # 步骤可视化（需要渲染模块）
+# python demo_generate.py --mode step_vis --steps 5 --temp 1.0 --sample_idx 0
+
+# # 多样本可视化（需要渲染模块）
+# python demo_generate.py --mode samples_vis --steps 5 --temp 1.0 --sample_size 10

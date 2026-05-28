@@ -1,3 +1,4 @@
 datasets/coco_train.npz
-datasets/EMDB/train.npz
-datasets/3DPW/3DPW_train.npz
+datasets/bedlam_train.npz
+datasets/hr-lspet/lspet_train.npz
+datasets/mpi_inf_3dhp/mpii_train.npz

@@ -1,0 +1,4 @@
+datasets/3DPW/3DPW-occ_100.npz
+datasets/3DPW/3DPW_train_100.npz
+datasets/EMDB/EMDB_occ_300.npz
+datasets/EMDB/EMDB_train_100.npz

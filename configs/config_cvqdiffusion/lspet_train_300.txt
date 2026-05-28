@@ -1,0 +1,1 @@
+datasets/hr-lspet/lspet_train_300_v2.npz

@@ -135,7 +135,7 @@ ${checkpoint}
 
 ### 训练数据集
 
-使用 [BEDLAM](https://bedlam.is.tue.mpg.de/index.html) 提供的 SMPL 标注。参照 [BEDLAM 训练说明](https://github.com/pixelite1201/BEDLAM/blob/master/docs/training.md) 中 `Training CLIFF model with real images` 部分下载训练图像和标注。
+使用 [BEDLAM](https://bedlam.is.tue.mpg.de/index.html) 提供的 SMPL 标注。参照 [BEDLAM 训练说明](https://github.com/pixelite1201/BEDLAM/blob/master/docs/training.md) 中 `Training CLIFF model with real images` 部分的指引下载训练图像和标注。下载完成后，数据集目录结构如下：
 
 下载完成后，数据集目录结构如下：
 
@@ -266,20 +266,6 @@ python train_vq_diffusion.py resume.path=checkpoint/CVQDIFFUSION/xxx/model_check
 | `model.diff_step` | 10 | 扩散步数 |
 | `save_every_n_steps` | 5000 | 每 N 步保存 checkpoint |
 
-### 多模态条件编码器（可选）
-
-可通过配置文件启用 `MultiModalConditionEncoder`，融合 Normal map 和关键点特征：
-
-```yaml
-multi_modal:
-  enabled: true
-  normal_patch_size: 32
-  normal_vit_dim: 256
-  kp_embed_dim: 1024
-  uce_depth: 4
-  uce_heads: 8
-```
-
 ---
 
 ## 测试
@@ -335,7 +321,7 @@ RotNet → 全局旋转 |  CamHead → 相机参数
 关键组件：
 - **Visual Tokenizer** (Mesh-VQ-VAE)：将人体网格压缩为 54 个离散 token，codebook 大小 512
 - **Backbone**：HRNet-W48 提取图像特征
-- **Condition Encoder**：将图像特征投影为条件序列，可选多模态融合
+- **Condition Encoder**：将图像特征投影为条件序列
 - **Diffusion Transformer**：masked discrete diffusion 模型，学习条件分布 $p(x_{1:T} | \text{image})$
 - **RotNet & CamHead**：回归全局旋转和相机参数，用于渲染
 
@@ -359,7 +345,6 @@ MEGA/
 │   ├── model/
 │   │   ├── cvqdiffusion/
 │   │   │   ├── cvqdiffusion.py          # CVQDiffusion 模型定义
-│   │   │   ├── multi_modal_encoder.py   # 多模态条件编码器
 │   │   │   └── __init__.py
 │   ├── train/
 │   │   ├── train_cvqdiffusion/

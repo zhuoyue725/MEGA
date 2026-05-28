@@ -1,0 +1,1 @@
+datasets/3DPW/3DPW-occ_300.npz

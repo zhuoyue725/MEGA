@@ -44,6 +44,7 @@ class Follow:
         self.best_loss = 1e8
         self.best_pampjpe = 1e8
         self.best_v2v = 1e8
+        self.best_2d = 1e8
 
         self.patience = 0
 
@@ -80,6 +81,9 @@ class Follow:
         self.path_samples_train = path_sample_train
         path_sample = path_time / "token"
         self.path_token = path_sample
+        path_test_sample = path_time / "samples_test"
+        path_test_sample.mkdir(exist_ok=True)
+        self.path_test_sample = path_test_sample
         path_sample_train.mkdir(exist_ok=True)
 
     def find_best_model(self, loss_validation):
@@ -103,11 +107,19 @@ class Follow:
         else:
             return False
 
+    def find_best_2d(self, loss_2d):
+        if loss_2d <= self.best_2d:
+            self.best_2d = loss_2d
+            return True
+        else:
+            return False
+
     def save_model(
         self,
         best_model: bool,
         best_pampjpe: bool,
         best_v2v: bool,
+        best_2d: bool,
         parameters: dict,
         epoch: int,
         every_step: int = 10,
@@ -144,6 +156,14 @@ class Follow:
             else:
                 torch.save(parameters, f"{self.path}/model_best_v2v")
                 print(f"\t - Best V2V saved: [loss:{parameters['v2v']}]")
+        if best_2d:
+            if self.multigpu_bool:
+                if self.idr.local_rank == 0:
+                    torch.save(parameters, f"{self.path}/model_best_2d")
+                    print(f"\t - Best 2D saved: [loss:{parameters['loss_2d']}]")
+            else:
+                torch.save(parameters, f"{self.path}/model_best_2d")
+                print(f"\t - Best 2D saved: [loss:{parameters['loss_2d']}]")
 
         if not best_pampjpe and not best_v2v:
             self.patience += 1
@@ -309,6 +329,7 @@ class Follow:
             best_model=self.find_best_model(loss_validation),
             best_pampjpe=self.find_best_pampjpe(pampjpe_validation),
             best_v2v=self.find_best_v2v(v2v_validation),
+            best_2d=self.find_best_2d(loss_2d_validation),
             parameters=parameters,
             epoch=epoch,
             every_step=2,

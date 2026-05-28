@@ -1,0 +1,1 @@
+datasets/ssp_3d/ssp_3d_train_scalev1.npz

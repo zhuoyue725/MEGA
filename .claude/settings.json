@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//mnt/data1/zzb/dataset/mpi_inf_3dhp/**)",
+      "Read(//home/zzb/pydata/recons/MEGA/image_synthesis/modeling/transformers/**)",
+      "Read(//home/zzb/pydata/recons/VQ-Diffusion/image_synthesis/modeling/transformers/**)"
+    ]
+  }
+}
